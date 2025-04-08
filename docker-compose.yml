@@ -1,0 +1,15 @@
+version: "3.8"
+
+services:
+  web:
+    image: ghcr.io/tgx-coding/deepdick/core:latest
+    network_mode: host
+    restart: always
+    command: python3 main.py
+    volumes:
+      - ./logs:/usr/src/app/logs
+    environment:
+      - username=
+      - password=
+      - API_KEY=
+      - parents_name=

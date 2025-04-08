@@ -1,0 +1,10 @@
+beautifulsoup4==4.13.3
+ddddocr==1.5.3
+html2text==2024.2.26
+Markdown==3.7
+openai==1.65.4
+Pillow==11.1.0
+Requests==2.32.3
+selenium==4.29.0
+webdriver-manager
+pymysql
