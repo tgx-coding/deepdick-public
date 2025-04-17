@@ -17,8 +17,8 @@
 建议使用Docker Compose
 
 ```bash
-mkdir deepdick
 git clone https://github.com/tgx-coding/deepdick-public
+cd deepdick-public
 docker compose up -d
 ```
 使用前请在`docker-compose.yml`中配置`username` `password` `API_KEY` `parents_name`环境变量
@@ -27,6 +27,7 @@ docker compose up -d
 
 ```
 git clone https://github.com/tgx-coding/deepdick-public
+cd deepdick-public
 pip install -r requirements.txt
 python main.py
 ```
