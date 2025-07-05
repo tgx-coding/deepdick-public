@@ -4,7 +4,7 @@ html2text==2024.2.26
 Markdown==3.7
 openai==1.65.4
 Pillow==11.1.0
-Requests==2.32.3
+Requests==2.32.4
 selenium==4.29.0
 webdriver-manager
 pymysql
