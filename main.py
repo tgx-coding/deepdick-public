@@ -33,7 +33,7 @@ logging.basicConfig(
 
 no_word = ["正在待机", "收到", "余额"]
 ds_model = "deepseek-reasoner"
-#secret = [os.getenv("username"), os.getenv("password")]
+secret = [os.getenv("username"), os.getenv("password")]
 time_stemp = time.time()
 reason = False
 retry_times = 0
