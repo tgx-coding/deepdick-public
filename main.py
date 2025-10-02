@@ -3,25 +3,25 @@ import os
 import re
 import time
 import logging
+import json
 import requests
 import markdown
 import html2text
+import datetime
 import ddddocr as dd
 from PIL import Image
 from openai import OpenAI
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.support.ui import WebDriverWait
 #import pymysql as mysql
-
+session=requests.session()
+class CustomError(Exception):
+    def __init__(self, message):
+        self.message = message
 os.environ['TZ'] = 'Asia/Shanghai'
 time.tzset()
-
+year = datetime.datetime.now().year
 os.makedirs(f"./logs/{os.getenv("username")}", exist_ok=True)  # 确保 logs 文件夹存在
-
+studentName=''
+phoneNumber=''
 script_start_time = time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime(time.time()))
 log_filename = f"./logs/{os.getenv("username")}/{script_start_time}.log"
 logging.basicConfig(
@@ -66,22 +66,6 @@ for row in results:
 
 
 
-# 创建 Chrome driver 的函数
-def create_driver():
-    options = Options()
-    options.add_argument('--headless')
-    options.add_argument('--no-sandbox')
-    options.add_argument('--disable-dev-shm-usage')
-    options.add_argument('--disable-gpu')
-    options.add_argument("--window-size=428,926")
-    service = Service()
-    driver_instance = webdriver.Chrome(service=service, options=options)
-    return driver_instance
-
-# 初始化全局 driver 和 WebDriverWait 对象
-driver = create_driver()
-wait = WebDriverWait(driver, 20, 0.1)  # 修改等待时间为20秒
-
 def markdown_to_text(markdown_text):
     # 将 Markdown 转换为 HTML，再转换为纯文本
     html_content = markdown.markdown(markdown_text)
@@ -93,16 +77,54 @@ def markdown_to_text(markdown_text):
     return plain_text
 
 def get():
-    global times
+    global times,studentName,phoneNumber
     times += 1
     if times >= 10:
         exit(-1)
     try:
-        words = driver.find_elements(By.CLASS_NAME, "pd-t-10")
+        headers = {
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'zh-CN,zh;q=0.9,en-GB;q=0.8,en;q=0.7,en-US;q=0.6',
+    'Connection': 'keep-alive',
+    'Content-Type': 'application/json; charset=UTF-8',
+    'Origin': 'https://wxapp.nhedu.net',
+    'Referer': 'https://wxapp.nhedu.net/edu-iot/mobile/',
+    'Sec-Fetch-Dest': 'empty',
+    'Sec-Fetch-Mode': 'cors',
+    'Sec-Fetch-Site': 'same-origin',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0',
+    'edu-token': '555c1701-696f-44c1-aa97-d3102a450f58',
+    'sec-ch-ua': '"Microsoft Edge";v="141", "Not?A_Brand";v="8", "Chromium";v="141"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"Windows"',
+    'sso-user': 'true',
+
+}
+
+        json_data = {
+    't': 1759383320255,
+    'pageNo': 1,
+    'pageSize': 10,
+    'startTime': '2025-01-01T00:00:00+08:00',
+    'endTime': f'{year}-12-31T23:59:59+08:00',
+    'pageType': 'first',
+}
+
+        response = session.post('https://wxapp.nhedu.net/edu-iot/be/ym-message//list', headers=headers, json=json_data)
+        deresponse=json.loads(response.content)
+        if deresponse['msg']!='success':
+            raise CustomError('get messages failed')
+        messages=json.loads(response.content)
+        words=[]
+        for i in messages['result']['rows']:
+            words.append(i['content'])
+        studentName=messages['result']['rows'][0]['studentName']
+        phoneNumber=messages['result']['rows'][0]['parentPhone']
+
         if words:
-            if words[-1] is not None:
+            if words[0] is not None:
                 times = 0
-                logging.info(f"获取信息: {words[-1].text}")
+                logging.info(f"获取信息: {words[0]}")
                 return words
             else:
                 time.sleep(5)
@@ -119,21 +141,64 @@ def get():
 def send_words(context):
     logging.info(f"发送信息: {context}")
     try:
-        input_place = driver.find_element(By.XPATH, "//input")
-        send_button = driver.find_element(By.XPATH, "//button")
+        now = datetime.datetime.now()
+        year = now.year
+        month = now.month
+        day = now.day
+        hour = now.hour
+        minute = now.minute
+        second = now.second
+        date_string = f"{year}-{month:02d}-{day:02d}T{hour:02d}:{minute:02d}:{second:02d}+08:00"
+        timestemp=time.time()
+        timestemp*=1000
+        headers = {
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'zh-CN,zh;q=0.9,en-GB;q=0.8,en;q=0.7,en-US;q=0.6',
+    'Connection': 'keep-alive',
+    'Content-Type': 'application/json; charset=UTF-8',
+    'Origin': 'https://wxapp.nhedu.net',
+    'Referer': 'https://wxapp.nhedu.net/edu-iot/mobile/',
+    'Sec-Fetch-Dest': 'empty',
+    'Sec-Fetch-Mode': 'cors',
+    'Sec-Fetch-Site': 'same-origin',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0',
+    'edu-token': '555c1701-696f-44c1-aa97-d3102a450f58',
+    'sec-ch-ua': '"Microsoft Edge";v="141", "Not?A_Brand";v="8", "Chromium";v="141"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"Windows"',
+    'sso-user': 'true',
+}
         context = markdown_to_text(context)
         context = replace_non_bmp(context)
         if len(context) >= 160:
             # 分段发送
             words_to_spare = [context[i:i + 150] for i in range(0, len(context), 160)]
             for segment in words_to_spare:
-                input_place.send_keys(segment)
-                send_button.click()
-                time.sleep(10)
+                json_data = {
+                
+    't': timestemp,
+    'dateTime': date_string,
+    'studentName': studentName,
+    'dataType': 0,
+    'content': segment,
+    'phoneNumber': phoneNumber,
+}
+                response = session.post('https://wxapp.nhedu.net/edu-iot/be/ym-message//post',headers=headers, json=json_data)   
         else:
-            input_place.send_keys(context)
-            send_button.click()
-            time.sleep(5)
+            json_data = {
+    't': timestemp,
+    'dateTime': date_string,
+    'studentName': studentName,
+    'dataType': 0,
+    'content': context,
+    'phoneNumber': phoneNumber,
+}
+            response = session.post('https://wxapp.nhedu.net/edu-iot/be/ym-message//post',headers=headers, json=json_data)   
+        deresponse=json.loads(response.content)
+        if deresponse['msg']!='success':
+            print(deresponse['msg'])
+            raise CustomError('send failed')
+
     except Exception as e:
         logging.error(f"send_words() 出现异常: {e}")
 
@@ -198,63 +263,65 @@ def deepseek_api(qes, models):
     return ans
 
 def login():
-    global driver, wait, retry_times
-    if retry_times >= 10:
-        exit(-1)
-    try:
-        driver.get('https://wxapp.nhedu.net/edu-base/mobile/#/edu-base-login')
-        driver.maximize_window()
-        # 账号密码输入
-        driver.find_element(By.NAME, "username").send_keys(secret[0])
-        driver.find_element(By.NAME, "password").send_keys(secret[1])
-        element = driver.find_element(By.ID, "account")
-        # 截图验证码区域
-        driver.execute_script("arguments[0].scrollIntoView();", element)
-        driver.get_screenshot_as_file('screenshot.png')
-        left = int(element.location['x'])
-        top = int(element.location['y'])
-        right = left + int(element.size['width'])
-        bottom = top + int(element.size['height'])
-        im = Image.open('screenshot.png')
-        im.crop((left, top, right, bottom)).save('code.png')
-        # OCR 验证码识别
-        ocr = dd.DdddOcr()
-        with open("code.png", "rb") as img_file:
-            image = img_file.read()
-        result = ocr.classification(image)
+    headers = {
+    'Accept': '*/*',
+    'Accept-Language': 'zh-CN,zh;q=0.9,en-GB;q=0.8,en;q=0.7,en-US;q=0.6',
+    'Connection': 'keep-alive',
+    'If-Modified-Since': 'Sat, 20 Sep 2025 05:20:28 GMT',
+    'If-None-Match': '"68ce399c-371"',
+    'Referer': 'https://wxapp.nhedu.net/edu-base/mobile/',
+    'Sec-Fetch-Dest': 'empty',
+    'Sec-Fetch-Mode': 'cors',
+    'Sec-Fetch-Site': 'same-origin',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0',
+    'sec-ch-ua': '"Microsoft Edge";v="141", "Not?A_Brand";v="8", "Chromium";v="141"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"Windows"',
+}
 
-        element = driver.find_element(By.NAME, "captcha")
-        element.send_keys(result)
-        # 点击留言版按钮
-        element = driver.find_element(By.CLASS_NAME, "van-button")
-        element.click()
-        time.sleep(15)
-        # 定位首页的目标入口
-        element = driver.find_element(By.XPATH, "//div[contains(text(), '智慧班牌留言板')]")
-        driver.execute_script("arguments[0].scrollIntoView();", element)
-        element.click()
-        time.sleep(2)
-        # 选择“我是本人”
-        driver.find_element(By.XPATH, f"//p[contains(text(), '我是{os.getenv("parents_name")}')]").click()
-        retry_times = 0
-    except KeyboardInterrupt:
-        exit(0)
-    except Exception as e:
-        logging.error(f"login() 出现异常: {e}")
-        try:
-            driver.quit()
-        except Exception:
-            pass
-        retry_times += 1
-        # 重新创建 driver 实例以确保会话正常
-        global wait
-        driver = create_driver()
-        wait = WebDriverWait(driver, 20, 0.1)  # Update wait time here as well
-        login()
+    response = session.get('https://wxapp.nhedu.net/edu-base/mobile/', headers=headers)
+    image=requests.get("https://wxapp.nhedu.net/edu-base/be/captcha/captcha.jpg?uuid=2e022573-11a3-4f25-8999-cdfa36bff424")
+    ocr = dd.DdddOcr()
+    result = ocr.classification(image.content)
+    logging.info(f"验证码：{result}")
+    headers = {
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'zh-CN,zh;q=0.9,en-GB;q=0.8,en;q=0.7,en-US;q=0.6',
+    'Connection': 'keep-alive',
+    'Content-Type': 'application/json; charset=UTF-8',
+    'Origin': 'https://wxapp.nhedu.net',
+    'Referer': 'https://wxapp.nhedu.net/edu-base/mobile/',
+    'Sec-Fetch-Dest': 'empty',
+    'Sec-Fetch-Mode': 'cors',
+    'Sec-Fetch-Site': 'same-origin',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0',
+    'edu-token': 'null',
+    'sec-ch-ua': '"Microsoft Edge";v="141", "Not?A_Brand";v="8", "Chromium";v="141"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"Windows"',
+    'sso-user': 'true',
+}
+
+    json_data = {
+        't': 1759378471057,
+        'loginType': 'sso_username',
+        'username': str(secret[0]),
+        'password': str(secret[1]),
+        'captcha': str(result),
+        'captchaUuid': '2e022573-11a3-4f25-8999-cdfa36bff424',
+    }
+
+    response = session.post('https://wxapp.nhedu.net/edu-base/be/open/login',headers=headers, json=json_data)
+    deresponse=json.loads(response.content)
+    if deresponse['msg']!='success':
+        raise CustomError("login failed")
+        exit(-1)
+
+
 
 # 登录操作
 login()
-print("成功登录")
+get()
 logging.info("成功登录")
 time.sleep(10)
 send_words("成功登录 请使用‘/ds’进行提问,使用‘/ds (内容)/reason’输出推理过程（仅在模型为r1时接受）使用‘/v3’切换至v3模型，使用‘/r1’切换至r1模型")
@@ -263,7 +330,7 @@ times = 0
 words = get()
 times = 0
 daiji = False
-latest_word = words[-1].text
+latest_word = words[0]
 
 # 主循环：检测新信息并调用 API 返回回复
 while True:
@@ -271,58 +338,53 @@ while True:
         if time.time() - time_stemp >= 300:
             daiji = True
         words = get()
-        if words[-1].text == "/v3":
+        if words[0] == "/v3":
             ds_model = "deepseek-chat"
             send_words("//已切换至v3")
             logging.info("已切换至v3")
             time.sleep(5)
             words = get()
-            latest_word = words[-1].text
-        elif words[-1].text == "/r1":
+            latest_word = words[0]
+        elif words[0] == "/r1":
             ds_model = "deepseek-reasoner"
             send_words("//已切换至r1")
             logging.info("已切换至r1")
             time.sleep(5)
             words = get()
-            latest_word = words[-1].text
-        elif words[-1].text == "stops":
+            latest_word = words[0]
+        elif words[0] == "stops":
             send_words("已停止")
             logging.info("已停止")
             exit(0)
-        elif words[-1].text == "待机" or daiji:
+        elif words[0] == "待机" or daiji:
             send_words("正在待机")
             logging.info("正在待机")
             time.sleep(5)
             words = get()
-            latest_word = words[-1].text
+            latest_word = words[0]
             while True:
-                get()
+                words=get()
                 time.sleep(180)
-                #time.sleep(10)
-                driver.refresh()
-                time.sleep(10)
-                driver.find_element(By.XPATH, f"//p[contains(text(), '我是{os.getenv("parents_name")}')]").click()
-                time.sleep(5)
                 words = get()
-                if words[-1].text != latest_word and words[-1].text != "正在待机":
+                if words[0] != latest_word and words[0] != "正在待机":
                     daiji = False
                     time.sleep(5)
                     words = get()
                     time_stemp = time.time()
                     break
-        elif words[-1].text == "余额":
+        elif words[0] == "余额":
             send_words(blance())
             time.sleep(5)
             words = get()
-            latest_word = words[-1].text
+            latest_word = words[0]
 
-        if (words[-1].text != latest_word and
-            re.search(re.escape("/ds"), words[-1].text)):
+        if (words[0] != latest_word and
+            re.search(re.escape("/ds"), words[0])):
             send_words("收到")
-            logging.info(f"收到: {words[-1].text}")
-            print(words[-1].text)
-            qes = words[-1].text.replace("/ds", "")
-            if re.search(re.escape("/reason"), words[-1].text):
+            logging.info(f"收到: {words[0]}")
+            print(words[0])
+            qes = words[0].replace("/ds", "")
+            if re.search(re.escape("/reason"), words[0]):
                 reason = True
                 qes = qes.replace("/reason", "")
             ds_o = deepseek_api(qes, ds_model)
@@ -330,29 +392,15 @@ while True:
             send_words("回答完毕")
             time.sleep(8)
             words = get()
-            latest_word = words[-1].text
+            latest_word = words[0]
             time_stemp = time.time()
         time.sleep(10)
-        driver.refresh()
-        time.sleep(5)
-        driver.find_element(By.XPATH, f"//p[contains(text(), '我是{os.getenv("parents_name")}')]").click()
-        time.sleep(5)
+        get()
 
 
     except TypeError:
 
-        time.sleep(10)
-
-        driver.refresh()
-
-        time.sleep(5)
-
-        element = driver.find_element(By.XPATH, f"//p[contains(text(), '我是{os.getenv("parents_name")}')]")
-
-        element.click()
-
-        time.sleep(5)
-
+        words=get()
         continue
 
     except KeyboardInterrupt:
@@ -361,8 +409,6 @@ while True:
 
     except:
 
-        driver.quit()
-        create_driver()
         login()
         logging.info("崩溃重启")
         continue
