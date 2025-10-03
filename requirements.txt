@@ -6,4 +6,5 @@ openai==1.65.4
 Pillow==11.1.0
 Requests==2.32.4
 pymysql
-
+pydub==0.25.1
+requests-toolbelt==1.0.0

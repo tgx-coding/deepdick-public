@@ -8,8 +8,11 @@ import requests
 import markdown
 import html2text
 import datetime
+from requests_toolbelt import MultipartEncoder
+from requests_toolbelt import MultipartEncoderMonitor
 import ddddocr as dd
 from PIL import Image
+from pydub import AudioSegment
 from openai import OpenAI
 #import pymysql as mysql
 timestemp=time.time()
@@ -26,6 +29,8 @@ year = datetime.datetime.now().year
 os.makedirs(f"./logs/{os.getenv("username")}", exist_ok=True)  # 确保 logs 文件夹存在
 studentName=''
 phoneNumber=''
+relation=os.getenv("parents_name")
+#relation="本人"
 script_start_time = time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime(time.time()))
 log_filename = f"./logs/{os.getenv("username")}/{script_start_time}.log"
 logging.basicConfig(
@@ -38,6 +43,7 @@ logging.basicConfig(
 no_word = ["正在待机", "收到", "余额"]
 ds_model = "deepseek-reasoner"
 secret = [os.getenv("username"), os.getenv("password")]
+
 
 time_stemp = time.time()
 reason = False
@@ -79,7 +85,43 @@ def markdown_to_text(markdown_text):
     text_maker.ignore_emphasis = True
     plain_text = text_maker.handle(html_content)
     return plain_text
-
+def time_to_seconds(time_str):
+    """
+    将"x分x秒"格式的时间转换为总秒数
+    
+    参数:
+        time_str: 字符串，格式如"5分30秒"、"1分"、"45秒"等
+    
+    返回:
+        int: 总秒数
+    """
+    # 初始化分钟和秒数
+    minutes = 0
+    seconds = 0
+    
+    # 检查字符串中是否包含"分"
+    if "分" in time_str:
+        # 分割字符串
+        parts = time_str.split("分")
+        
+        # 提取分钟部分
+        if parts[0]:  # 确保分钟部分不为空
+            minutes = int(parts[0])
+        
+        # 提取秒数部分（如果存在）
+        if len(parts) > 1 and parts[1] and "秒" in parts[1]:
+            seconds_str = parts[1].replace("秒", "")
+            if seconds_str:  # 确保秒数部分不为空
+                seconds = int(seconds_str)
+    elif "秒" in time_str:
+        # 只有秒数的情况
+        seconds_str = time_str.replace("秒", "")
+        if seconds_str:  # 确保秒数部分不为空
+            seconds = int(seconds_str)
+    
+    # 计算总秒数
+    total_seconds = minutes * 60 + seconds
+    return total_seconds
 retry_times=0
 def get():
     global times,studentName,phoneNumber
@@ -180,18 +222,127 @@ def get_song(name,choose=1,quality=4,retry_times=0):
                 return get_song(name,choose,quality,retry_times)
         else:
             voice_url=voice["data"]["url"]
+            interval=time_to_seconds(voice["data"]["interval"])
             logging.info(f"下载url：{voice_url}")
             file=requests.get(voice_url)
-            open("./1.mp3","wb").write(file.content)
             logging.info("下载完成")
-            return
+            open('./1.mp3','wb').write(file.content)
+            return interval
     except Exception as e:
         send_words("获取歌曲失败")
         logging.error(f"出现异常: {e}")
-        return
+def my_callback(monitor):
+    progress = (monitor.bytes_read / monitor.len) * 100
+    logging.info("\r 文件上传进度：%d%%(%d/%d)" % (progress, monitor.bytes_read, monitor.len), end=" ")
+def get_parentId(relation):
+    headers = {
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'zh-CN,zh;q=0.9,en-GB;q=0.8,en;q=0.7,en-US;q=0.6',
+    'Connection': 'keep-alive',
+    'Referer': 'https://wxapp.nhedu.net/edu-iot/mobile/',
+    'Sec-Fetch-Dest': 'empty',
+    'Sec-Fetch-Mode': 'cors',
+    'Sec-Fetch-Site': 'same-origin',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0',
+    'edu-token': f'{token}',
+    'sec-ch-ua': '"Microsoft Edge";v="141", "Not?A_Brand";v="8", "Chromium";v="141"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"Windows"',
+    'sso-user': 'true',
+    
+}
 
-def send_words(context,type=0):
-    logging.info(f"发送信息: {context}")
+    params = {
+        't': f'{timestemp}',
+    }
+
+    response = session.get('https://wxapp.nhedu.net/edu-iot/be/ym-message//parents', params=params,headers=headers)
+    result=json.loads(response.content)
+    for i in result["result"]:
+        if i["relation"]==relation:
+            logging.info(f"获取家长id：{i["parentId"]}")
+            return i["parentId"]
+def upload_voice(in_file, parentId,
+                 time=time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime()),
+                 max_retries: int = 3,
+                 chunk_size: int = 256 * 1024):
+    filename = f"{parentId}_{phoneNumber}_{time}.wav"
+    fields = {
+        'parentId': str(parentId),
+        'mobile': str(phoneNumber),
+        'file': (filename, in_file, 'application/octet-stream')
+    }
+
+    if hasattr(in_file, "seek"):
+        in_file.seek(0)
+
+    try:
+        headers = {
+    'Accept': 'application/json, text/plain, */*',
+    'Accept-Language': 'zh-CN,zh;q=0.9,en-GB;q=0.8,en;q=0.7,en-US;q=0.6',
+    'Connection': 'keep-alive',
+    'Origin': 'https://wxapp.nhedu.net',
+    'Referer': 'https://wxapp.nhedu.net/edu-iot/mobile/',
+    'Sec-Fetch-Dest': 'empty',
+    'Sec-Fetch-Mode': 'cors',
+    'Sec-Fetch-Site': 'same-origin',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0',
+    'edu-token': f'{token}',
+    'sec-ch-ua': '"Microsoft Edge";v="141", "Not?A_Brand";v="8", "Chromium";v="141"',
+    'sec-ch-ua-mobile': '?0',
+    'sec-ch-ua-platform': '"Windows"',
+    'sso-user': 'true',
+    
+}
+
+        encoder = MultipartEncoder(fields=fields)
+
+        progress_state = {'last_bucket': -1}
+
+        def make_callback(total_length):
+            def _callback(monitor):
+                if not total_length:
+                    return
+                percent = int(monitor.bytes_read * 100 / total_length)
+                bucket = percent // 10
+                if bucket > progress_state['last_bucket']:
+                    progress_state['last_bucket'] = bucket
+                    logging.info(f"上传进度：{percent}% ({monitor.bytes_read}/{total_length} bytes)")
+            return _callback
+
+        monitor = MultipartEncoderMonitor(encoder, make_callback(encoder.len))
+        headers['Content-Type'] = monitor.content_type
+
+        logging.info("正在上传")
+        response = session.post(
+        'https://wxapp.nhedu.net/edu-iot/be/ym-message//upload-voice',
+        headers=headers,
+        data=monitor,
+        timeout=180,
+    )
+
+        #print(response.content)
+        deresponse=json.loads(response.content)
+        #print(deresponse)
+        if deresponse['msg']!='success':
+            raise CustomError('UPLOAD failed')
+        upload_file_url=deresponse["result"]
+        logging.info("成功")
+        return upload_file_url
+
+    except Exception as exc:
+        logging.error(f"上传失败: {exc}")
+        send_words("请重试")
+        return None
+
+def mp3_to_wav(file_path="./1.mp3"):
+    song = AudioSegment.from_mp3(file_path)
+    song.export("1.wav", format="wav")
+    return
+
+
+def send_words(context,type=0,interval=0):
+
     try:
         now = datetime.datetime.now()
         year = now.year
@@ -220,6 +371,21 @@ def send_words(context,type=0):
     'sec-ch-ua-platform': '"Windows"',
     'sso-user': 'true',
 }
+        if type:
+            logging.info(f"发送音频链接：{context}，时长：{interval}秒")
+            json_data = {
+    't': timestemp,
+    'dateTime': date_string,
+    'studentName': studentName,
+    'dataType': 1,
+    'fileUrl': context,
+    'voiceTime': interval,
+    'phoneNumber': phoneNumber,
+}
+
+            response = requests.post('https://wxapp.nhedu.net/edu-iot/be/ym-message//post',headers=headers, json=json_data)
+            return
+        logging.info(f"发送信息: {context}")
         context = markdown_to_text(context)
         context = replace_non_bmp(context)
         if len(context) >= 160:
@@ -250,7 +416,6 @@ def send_words(context,type=0):
             response = session.post('https://wxapp.nhedu.net/edu-iot/be/ym-message//post',headers=headers, json=json_data)   
         deresponse=json.loads(response.content)
         if deresponse['msg']!='success':
-            print(deresponse['msg'])
             raise CustomError('send failed')
         time_stemp = time.time()
     except Exception as e:
@@ -378,6 +543,15 @@ def login():
 # 登录操作
 login()
 get()
+
+#interval=get_song("payphone")
+#mp3_to_wav()
+'''
+with open("./1.mp3","rb") as f:
+    send_words(upload_voice(f,get_parentId(relation)),1,60)
+
+input()
+'''
 logging.info("成功登录")
 send_words("成功登录 请使用‘/ds’进行提问,使用‘/ds (内容)/reason’输出推理过程（仅在模型为r1时接受）使用‘/v3’切换至v3模型，使用‘/r1’切换至r1模型")
 time.sleep(2)
