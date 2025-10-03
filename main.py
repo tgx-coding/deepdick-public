@@ -15,6 +15,7 @@ from openai import OpenAI
 timestemp=time.time()
 timestemp*=1000
 token=""
+song_list=[]
 session=requests.session()
 class CustomError(Exception):
     def __init__(self, message):
@@ -79,6 +80,7 @@ def markdown_to_text(markdown_text):
     plain_text = text_maker.handle(html_content)
     return plain_text
 
+retry_times=0
 def get():
     global times,studentName,phoneNumber
     times += 1
@@ -138,10 +140,9 @@ def get():
     except Exception as e:
         logging.error(f"get() 出现异常: {e}")
         return get()
-def get_voice_list(name):
+def get_voice_list(name,from_where=1,retry_times=0):
     try:
         logging.info(f"查询歌曲:{name}")
-        retry_times=0
         if retry_times>=10:
             retry_times=0
             raise CustomError("get voice list failed")
@@ -150,17 +151,44 @@ def get_voice_list(name):
         
         if voice_list["code"]!=200:
             retry_times+=1
-            logging.info(f"重试次数：{retry_times}")
-            return get_voice_list(name)
+            logging.info(f"获取歌曲列表重试次数：{retry_times}")
+            return get_voice_list(name,from_where,retry_times)
         de_voice_list=[]
         for i in voice_list["data"]:
             de_voice_list.append(f"{i["song"]}---{i["singer"]}")
-        logging.info("成功获取")
+        
         return de_voice_list
     except Exception as e:
-        send_words("获取失败")
+        if from_where:
+            send_words("获取失败")
+        else:
+            return []
         logging.error(f"出现异常: {e}")
+        return
         
+def get_song(name,choose=1,quality=4,retry_times=0):
+    try:
+        response=requests.get(f"https://api.vkeys.cn/v2/music/netease?word={name}&choose={choose}&quality={quality}")
+        voice=json.loads(response.content)
+        if voice['code']!=200:
+            if retry_times>=10:
+                retry_times=0
+                raise CustomError("get voice file failed")
+            else:
+                retry_times+=1
+                logging.info(f"重试获取歌曲次数：{retry_times}")
+                return get_song(name,choose,quality,retry_times)
+        else:
+            voice_url=voice["data"]["url"]
+            logging.info(f"下载url：{voice_url}")
+            file=requests.get(voice_url)
+            open("./1.mp3","wb").write(file.content)
+            logging.info("下载完成")
+            return
+    except Exception as e:
+        send_words("获取歌曲失败")
+        logging.error(f"出现异常: {e}")
+        return
 
 def send_words(context,type=0):
     logging.info(f"发送信息: {context}")
@@ -421,14 +449,14 @@ while True:
             song_name=words[0].replace("/查询歌曲", "")
             song_name=song_name.replace(" ","")
             song_list=get_voice_list(song_name)
-            number=0
+            number=1
 
             if song_list:
+                logging.info("成功获取")
                 for i in song_list:
                     send_words(f"{number}.{i}")
                     number+=1
-
-
+            song_list=[]
         time.sleep(10)
         get()
 
