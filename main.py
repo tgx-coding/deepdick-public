@@ -12,6 +12,9 @@ import ddddocr as dd
 from PIL import Image
 from openai import OpenAI
 #import pymysql as mysql
+timestemp=time.time()
+timestemp*=1000
+token=""
 session=requests.session()
 class CustomError(Exception):
     def __init__(self, message):
@@ -34,9 +37,9 @@ logging.basicConfig(
 no_word = ["正在待机", "收到", "余额"]
 ds_model = "deepseek-reasoner"
 secret = [os.getenv("username"), os.getenv("password")]
+
 time_stemp = time.time()
 reason = False
-retry_times = 0
 times = 0
 
 username=os.getenv("username") #将用户名存储到变量中方便读取
@@ -82,6 +85,7 @@ def get():
     if times >= 10:
         exit(-1)
     try:
+        
         headers = {
     'Accept': 'application/json, text/plain, */*',
     'Accept-Language': 'zh-CN,zh;q=0.9,en-GB;q=0.8,en;q=0.7,en-US;q=0.6',
@@ -93,24 +97,21 @@ def get():
     'Sec-Fetch-Mode': 'cors',
     'Sec-Fetch-Site': 'same-origin',
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0',
-    'edu-token': '555c1701-696f-44c1-aa97-d3102a450f58',
+    'edu-token': f'{token}',
     'sec-ch-ua': '"Microsoft Edge";v="141", "Not?A_Brand";v="8", "Chromium";v="141"',
     'sec-ch-ua-mobile': '?0',
     'sec-ch-ua-platform': '"Windows"',
     'sso-user': 'true',
-
 }
-
         json_data = {
-    't': 1759383320255,
+    't': timestemp,
     'pageNo': 1,
     'pageSize': 10,
     'startTime': '2025-01-01T00:00:00+08:00',
     'endTime': f'{year}-12-31T23:59:59+08:00',
     'pageType': 'first',
 }
-
-        response = session.post('https://wxapp.nhedu.net/edu-iot/be/ym-message//list', headers=headers, json=json_data)
+        response = session.post('https://wxapp.nhedu.net/edu-iot/be/ym-message//list',headers=headers, json=json_data)
         deresponse=json.loads(response.content)
         if deresponse['msg']!='success':
             raise CustomError('get messages failed')
@@ -137,8 +138,31 @@ def get():
     except Exception as e:
         logging.error(f"get() 出现异常: {e}")
         return get()
+def get_voice_list(name):
+    try:
+        logging.info(f"查询歌曲:{name}")
+        retry_times=0
+        if retry_times>=10:
+            retry_times=0
+            raise CustomError("get voice list failed")
+        response=requests.get(f"https://api.vkeys.cn/v2/music/netease?word={name}")
+        voice_list=json.loads(response.content)
+        
+        if voice_list["code"]!=200:
+            retry_times+=1
+            logging.info(f"重试次数：{retry_times}")
+            return get_voice_list(name)
+        de_voice_list=[]
+        for i in voice_list["data"]:
+            de_voice_list.append(f"{i["song"]}---{i["singer"]}")
+        logging.info("成功获取")
+        return de_voice_list
+    except Exception as e:
+        send_words("获取失败")
+        logging.error(f"出现异常: {e}")
+        
 
-def send_words(context):
+def send_words(context,type=0):
     logging.info(f"发送信息: {context}")
     try:
         now = datetime.datetime.now()
@@ -149,8 +173,8 @@ def send_words(context):
         minute = now.minute
         second = now.second
         date_string = f"{year}-{month:02d}-{day:02d}T{hour:02d}:{minute:02d}:{second:02d}+08:00"
-        timestemp=time.time()
-        timestemp*=1000
+        global timestemp,time_stemp
+
         headers = {
     'Accept': 'application/json, text/plain, */*',
     'Accept-Language': 'zh-CN,zh;q=0.9,en-GB;q=0.8,en;q=0.7,en-US;q=0.6',
@@ -162,7 +186,7 @@ def send_words(context):
     'Sec-Fetch-Mode': 'cors',
     'Sec-Fetch-Site': 'same-origin',
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0',
-    'edu-token': '555c1701-696f-44c1-aa97-d3102a450f58',
+    'edu-token': f'{token}',
     'sec-ch-ua': '"Microsoft Edge";v="141", "Not?A_Brand";v="8", "Chromium";v="141"',
     'sec-ch-ua-mobile': '?0',
     'sec-ch-ua-platform': '"Windows"',
@@ -174,6 +198,7 @@ def send_words(context):
             # 分段发送
             words_to_spare = [context[i:i + 150] for i in range(0, len(context), 160)]
             for segment in words_to_spare:
+                time.sleep(1)
                 json_data = {
                 
     't': timestemp,
@@ -193,12 +218,13 @@ def send_words(context):
     'content': context,
     'phoneNumber': phoneNumber,
 }
+            time.sleep(1)
             response = session.post('https://wxapp.nhedu.net/edu-iot/be/ym-message//post',headers=headers, json=json_data)   
         deresponse=json.loads(response.content)
         if deresponse['msg']!='success':
             print(deresponse['msg'])
             raise CustomError('send failed')
-
+        time_stemp = time.time()
     except Exception as e:
         logging.error(f"send_words() 出现异常: {e}")
 
@@ -263,6 +289,7 @@ def deepseek_api(qes, models):
     return ans
 
 def login():
+    global token
     headers = {
     'Accept': '*/*',
     'Accept-Language': 'zh-CN,zh;q=0.9,en-GB;q=0.8,en;q=0.7,en-US;q=0.6',
@@ -313,6 +340,7 @@ def login():
 
     response = session.post('https://wxapp.nhedu.net/edu-base/be/open/login',headers=headers, json=json_data)
     deresponse=json.loads(response.content)
+    token=deresponse["result"]["token"]
     if deresponse['msg']!='success':
         raise CustomError("login failed")
         exit(-1)
@@ -323,7 +351,6 @@ def login():
 login()
 get()
 logging.info("成功登录")
-time.sleep(10)
 send_words("成功登录 请使用‘/ds’进行提问,使用‘/ds (内容)/reason’输出推理过程（仅在模型为r1时接受）使用‘/v3’切换至v3模型，使用‘/r1’切换至r1模型")
 time.sleep(2)
 times = 0
@@ -342,14 +369,12 @@ while True:
             ds_model = "deepseek-chat"
             send_words("//已切换至v3")
             logging.info("已切换至v3")
-            time.sleep(5)
             words = get()
             latest_word = words[0]
         elif words[0] == "/r1":
             ds_model = "deepseek-reasoner"
             send_words("//已切换至r1")
             logging.info("已切换至r1")
-            time.sleep(5)
             words = get()
             latest_word = words[0]
         elif words[0] == "stops":
@@ -359,7 +384,6 @@ while True:
         elif words[0] == "待机" or daiji:
             send_words("正在待机")
             logging.info("正在待机")
-            time.sleep(5)
             words = get()
             latest_word = words[0]
             while True:
@@ -368,13 +392,11 @@ while True:
                 words = get()
                 if words[0] != latest_word and words[0] != "正在待机":
                     daiji = False
-                    time.sleep(5)
                     words = get()
                     time_stemp = time.time()
                     break
         elif words[0] == "余额":
             send_words(blance())
-            time.sleep(5)
             words = get()
             latest_word = words[0]
 
@@ -382,7 +404,6 @@ while True:
             re.search(re.escape("/ds"), words[0])):
             send_words("收到")
             logging.info(f"收到: {words[0]}")
-            print(words[0])
             qes = words[0].replace("/ds", "")
             if re.search(re.escape("/reason"), words[0]):
                 reason = True
@@ -390,10 +411,24 @@ while True:
             ds_o = deepseek_api(qes, ds_model)
             time.sleep(5)
             send_words("回答完毕")
-            time.sleep(8)
             words = get()
             latest_word = words[0]
             time_stemp = time.time()
+        elif (words[0] != latest_word and
+            re.search(re.escape("/查询歌曲"), words[0])):
+            send_words("收到请求")
+            logging.info(f"收到: {words[0]}")
+            song_name=words[0].replace("/查询歌曲", "")
+            song_name=song_name.replace(" ","")
+            song_list=get_voice_list(song_name)
+            number=0
+
+            if song_list:
+                for i in song_list:
+                    send_words(f"{number}.{i}")
+                    number+=1
+
+
         time.sleep(10)
         get()
 
