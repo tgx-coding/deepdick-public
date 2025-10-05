@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   web:
-    image: ghcr.io/tgx-coding/deepdick/core:latest
+    image: ghcr.io/tgx-coding/deepdick-public/core:latest
     network_mode: host
     restart: always
     command: python3 main.py
