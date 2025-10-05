@@ -30,7 +30,6 @@ os.makedirs(f"./logs/{os.getenv("username")}", exist_ok=True)  # 确保 logs 文
 studentName=''
 phoneNumber=''
 relation=os.getenv("parents_name")
-#relation="本人"
 script_start_time = time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime(time.time()))
 log_filename = f"./logs/{os.getenv("username")}/{script_start_time}.log"
 logging.basicConfig(
@@ -43,7 +42,6 @@ logging.basicConfig(
 no_word = ["正在待机", "收到", "余额"]
 ds_model = "deepseek-reasoner"
 secret = [os.getenv("username"), os.getenv("password")]
-
 
 time_stemp = time.time()
 reason = False
@@ -321,9 +319,7 @@ def upload_voice(in_file, parentId,
         timeout=180,
     )
 
-        #print(response.content)
         deresponse=json.loads(response.content)
-        #print(deresponse)
         if deresponse['msg']!='success':
             raise CustomError('UPLOAD failed')
         upload_file_url=deresponse["result"]
@@ -379,11 +375,12 @@ def send_words(context,type=0,interval=0):
     'studentName': studentName,
     'dataType': 1,
     'fileUrl': context,
-    'voiceTime': interval,
+    'voiceTime': 60,
     'phoneNumber': phoneNumber,
 }
 
             response = requests.post('https://wxapp.nhedu.net/edu-iot/be/ym-message//post',headers=headers, json=json_data)
+            os.system("rm -f 1.mp3")
             return
         logging.info(f"发送信息: {context}")
         context = markdown_to_text(context)
@@ -423,6 +420,20 @@ def send_words(context,type=0,interval=0):
 
 def replace_non_bmp(text, replacement="(无法显示)"):
     return re.sub(r'[^\u0000-\uFFFF]', replacement, text)
+def parse_song_request(text):
+    """
+    解析点歌请求，提取歌曲名和序号
+    格式：/点歌XXX第XX首
+    """
+    pattern = r'/点歌(.+?)第(\d+)首'
+    match = re.search(pattern, text)
+    
+    if match:
+        song_name = match.group(1)  # 歌曲名
+        song_number = match.group(2)  # 序号
+        return song_name, int(song_number)
+    else:
+        return None, None
 
 def blance():
     url = "https://api.deepseek.com/user/balance"
@@ -543,15 +554,6 @@ def login():
 # 登录操作
 login()
 get()
-
-#interval=get_song("payphone")
-#mp3_to_wav()
-'''
-with open("./1.mp3","rb") as f:
-    send_words(upload_voice(f,get_parentId(relation)),1,60)
-
-input()
-'''
 logging.info("成功登录")
 send_words("成功登录 请使用‘/ds’进行提问,使用‘/ds (内容)/reason’输出推理过程（仅在模型为r1时接受）使用‘/v3’切换至v3模型，使用‘/r1’切换至r1模型")
 time.sleep(2)
@@ -613,6 +615,7 @@ while True:
             ds_o = deepseek_api(qes, ds_model)
             time.sleep(5)
             send_words("回答完毕")
+            reason = False
             words = get()
             latest_word = words[0]
             time_stemp = time.time()
@@ -631,7 +634,32 @@ while True:
                     send_words(f"{number}.{i}")
                     number+=1
             song_list=[]
-        time.sleep(10)
+        elif (words[0] != latest_word and
+            re.search(re.escape("/点歌"), words[0])):
+            send_words("收到请求")
+            logging.info(f"点歌: {words[0]}")
+            song_name, song_number = parse_song_request(words[0])
+            if song_name and song_number:
+                send_words(f"正在点歌: {song_name} 第{song_number}首")
+                logging.info(f"正在点歌: {song_name} 第{song_number}首")
+                interval=get_song(song_name, song_number)
+                if interval:
+                    with open("./1.mp3", "rb") as f:
+                        upload_url = upload_voice(f, get_parentId(relation))
+                        if upload_url:
+                            send_words(upload_url, 1, interval)
+                            logging.info("点歌成功")
+                            send_words("点歌成功")
+                        else:
+                            send_words("点歌失败")
+                            logging.info("点歌失败")
+                else:
+                    send_words("点歌失败")
+                    logging.info("点歌失败")
+            else:
+                send_words("无法解析点歌请求")
+                logging.info("无法解析点歌请求")
+        time.sleep(1)
         get()
 
 
