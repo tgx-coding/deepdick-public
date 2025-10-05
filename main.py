@@ -19,7 +19,20 @@ timestemp=time.time()
 timestemp*=1000
 token=""
 song_list=[]
-session=requests.session()
+REQUEST_TIMEOUT = 180
+
+
+class TimeoutSession(requests.Session):
+    def __init__(self, timeout=None):
+        super().__init__()
+        self._timeout = timeout
+
+    def request(self, method, url, **kwargs):
+        kwargs.setdefault("timeout", self._timeout)
+        return super().request(method, url, **kwargs)
+
+
+session = TimeoutSession(timeout=REQUEST_TIMEOUT)
 class CustomError(Exception):
     def __init__(self, message):
         self.message = message
@@ -186,7 +199,7 @@ def get_voice_list(name,from_where=1,retry_times=0):
         if retry_times>=10:
             retry_times=0
             raise CustomError("get voice list failed")
-        response=requests.get(f"https://api.vkeys.cn/v2/music/netease?word={name}")
+        response=session.get(f"https://api.vkeys.cn/v2/music/netease?word={name}")
         voice_list=json.loads(response.content)
         
         if voice_list["code"]!=200:
@@ -208,7 +221,7 @@ def get_voice_list(name,from_where=1,retry_times=0):
         
 def get_song(name,choose=1,quality=4,retry_times=0):
     try:
-        response=requests.get(f"https://api.vkeys.cn/v2/music/netease?word={name}&choose={choose}&quality={quality}")
+        response=session.get(f"https://api.vkeys.cn/v2/music/netease?word={name}&choose={choose}&quality={quality}")
         voice=json.loads(response.content)
         if voice['code']!=200:
             if retry_times>=10:
@@ -222,7 +235,7 @@ def get_song(name,choose=1,quality=4,retry_times=0):
             voice_url=voice["data"]["url"]
             interval=time_to_seconds(voice["data"]["interval"])
             logging.info(f"下载url：{voice_url}")
-            file=requests.get(voice_url)
+            file=session.get(voice_url)
             logging.info("下载完成")
             open('./1.mp3','wb').write(file.content)
             return interval
@@ -379,7 +392,7 @@ def send_words(context,type=0,interval=0):
     'phoneNumber': phoneNumber,
 }
 
-            response = requests.post('https://wxapp.nhedu.net/edu-iot/be/ym-message//post',headers=headers, json=json_data)
+            response = session.post('https://wxapp.nhedu.net/edu-iot/be/ym-message//post',headers=headers, json=json_data)
             os.system("rm -f 1.mp3")
             return
         logging.info(f"发送信息: {context}")
@@ -441,7 +454,7 @@ def blance():
         'Accept': 'application/json',
         'Authorization': f'Bearer {os.getenv("API_KEY")}'
     }
-    response = requests.get(url, headers=headers)
+    response = session.get(url, headers=headers)
     return response.text
 
 def deepseek_api(qes, models):
@@ -511,7 +524,7 @@ def login():
 }
 
     response = session.get('https://wxapp.nhedu.net/edu-base/mobile/', headers=headers)
-    image=requests.get("https://wxapp.nhedu.net/edu-base/be/captcha/captcha.jpg?uuid=2e022573-11a3-4f25-8999-cdfa36bff424")
+    image=session.get("https://wxapp.nhedu.net/edu-base/be/captcha/captcha.jpg?uuid=2e022573-11a3-4f25-8999-cdfa36bff424")
     ocr = dd.DdddOcr()
     result = ocr.classification(image.content)
     logging.info(f"验证码：{result}")
