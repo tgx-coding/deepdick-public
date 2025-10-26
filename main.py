@@ -62,28 +62,6 @@ times = 0
 
 username=os.getenv("username") #将用户名存储到变量中方便读取
 
-'''
-#配置mysql,记得要配置好先喵
-db = mysql.connect(
-    host="mysql",
-    user="mysql",
-    password="114514",
-    database="deepdick"
-)
-cursor = db.cursor()
-#定义sql语句
-log ="""INSERT INTO LOGS(user,token)   
-        VALUES (%s, %s)""" #写入操作日志数据库
-balance_write ="""INSERT INTO BALANCE(user,balance) 
-            VALUES (%s,%S)""" #写入余额数据库
-balance_read ="""SELECT balance FROM BALANCE WHERE user = %s""" #读取余额数据库
-
-#没搞懂消息发送逻辑，摆了，给你放个实例你来写吧（
-cursor.execute(balance_read, (username)) #这里前面是会执行的定义好的语句，后面是要用来替换语句中占位符的内容（比如这里就会用username这个变量替换第一个占位符）
-results = cursor.fetchall() #读取语句
-for row in results:
-    balance = row[0] #这里指的是把balance定义为查询到的第一个结果
-'''
 
 
 
