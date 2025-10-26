@@ -20,6 +20,12 @@ timestemp*=1000
 token=""
 song_list=[]
 REQUEST_TIMEOUT = 180
+USERNAME = os.getenv("username") or "default_user"
+LOG_DIR = os.path.join("./logs", USERNAME)
+CONTEXT_FILE = os.path.join(LOG_DIR, "conversation_context.json")
+MAX_CONTEXT_MESSAGES = 20
+# 对话上下文缓存，启动时从本地日志目录恢复
+conversation_context = []
 
 
 class TimeoutSession(requests.Session):
@@ -44,13 +50,73 @@ studentName=''
 phoneNumber=''
 relation=os.getenv("parents_name")
 script_start_time = time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime(time.time()))
-log_filename = f"./logs/{os.getenv("username")}/{script_start_time}.log"
+log_filename = os.path.join(LOG_DIR, f"{script_start_time}.log")
 logging.basicConfig(
     filename=log_filename,
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S"
 )
+
+
+def trim_conversation_context():
+    # 控制本地上下文长度，避免持久化文件无限增长
+    global conversation_context
+    if len(conversation_context) > MAX_CONTEXT_MESSAGES:
+        conversation_context = conversation_context[-MAX_CONTEXT_MESSAGES:]
+
+
+def save_conversation_context():
+    # 将当前上下文落盘，供重启后延续会话
+    try:
+        with open(CONTEXT_FILE, "w", encoding="utf-8") as context_file:
+            json.dump(conversation_context, context_file, ensure_ascii=True, indent=2)
+    except Exception as exc:
+        logging.error(f"保存对话上下文失败: {exc}")
+
+
+def load_conversation_context():
+    global conversation_context
+    if not os.path.exists(CONTEXT_FILE):
+        conversation_context = []
+        return
+    try:
+        with open(CONTEXT_FILE, "r", encoding="utf-8") as context_file:
+            data = json.load(context_file)
+            conversation_context = data if isinstance(data, list) else []
+            trim_conversation_context()
+    except Exception as exc:
+        logging.error(f"加载对话上下文失败: {exc}")
+        conversation_context = []
+
+
+def append_conversation_message(role, content):
+    # 将新消息写入内存与磁盘，保持角色标签
+    if not content:
+        return
+    conversation_context.append({"role": role, "content": content})
+    trim_conversation_context()
+    save_conversation_context()
+
+
+def pop_last_conversation_message():
+    # 在上游出错时撤销最近一次入栈，避免脏数据
+    if conversation_context:
+        conversation_context.pop()
+        save_conversation_context()
+
+
+def clear_conversation_context():
+    # /new 指令触发时清空内存与本地文件
+    conversation_context.clear()
+    if os.path.exists(CONTEXT_FILE):
+        try:
+            os.remove(CONTEXT_FILE)
+        except OSError as exc:
+            logging.error(f"删除对话上下文文件失败: {exc}")
+
+
+load_conversation_context()
 
 no_word = ["正在待机", "收到", "余额"]
 ds_model = "deepseek-reasoner"
@@ -62,28 +128,6 @@ times = 0
 
 username=os.getenv("username") #将用户名存储到变量中方便读取
 
-'''
-#配置mysql,记得要配置好先喵
-db = mysql.connect(
-    host="mysql",
-    user="mysql",
-    password="114514",
-    database="deepdick"
-)
-cursor = db.cursor()
-#定义sql语句
-log ="""INSERT INTO LOGS(user,token)   
-        VALUES (%s, %s)""" #写入操作日志数据库
-balance_write ="""INSERT INTO BALANCE(user,balance) 
-            VALUES (%s,%S)""" #写入余额数据库
-balance_read ="""SELECT balance FROM BALANCE WHERE user = %s""" #读取余额数据库
-
-#没搞懂消息发送逻辑，摆了，给你放个实例你来写吧（
-cursor.execute(balance_read, (username)) #这里前面是会执行的定义好的语句，后面是要用来替换语句中占位符的内容（比如这里就会用username这个变量替换第一个占位符）
-results = cursor.fetchall() #读取语句
-for row in results:
-    balance = row[0] #这里指的是把balance定义为查询到的第一个结果
-'''
 
 
 
@@ -136,6 +180,7 @@ def time_to_seconds(time_str):
 retry_times=0
 def get():
     global times,studentName,phoneNumber
+    time.sleep(0.5)
     times += 1
     if times >= 10:
         exit(-1)
@@ -460,16 +505,17 @@ def blance():
 def deepseek_api(qes, models):
     logging.info(f"调用 DeepSeek API: {qes}")
     client = OpenAI(api_key=os.getenv("API_KEY"), base_url="https://api.deepseek.com")
+    messages = [{
+        "role": "system",
+        "content": "如果这是个数学问题，请遵循以下规则：“我的环境无法渲染Latex和markdown,所以请以纯文本形式输出数学公式，且尽量避免换行。”其他情况请正常回答。"
+    }]
+    messages.extend(conversation_context)
     response = client.chat.completions.create(
         model=models,
-        messages=[
-            {"role": "system", "content": "如果这是个数学问题，请遵循以下规则：“我的环境无法渲染Latex和markdown,所以请以纯文本形式输出数学公式，且尽量避免换行。”其他情况请正常回答。"},
-            {"role": "user", "content": qes},
-        ],
+        messages=messages,
         stream=True,
         temperature=1.5
     )
-    ans = ['', '']
     reasoning_content = ""
     reasoning_content_total = ""
     content = ""
@@ -501,9 +547,11 @@ def deepseek_api(qes, models):
                 content_total += chunk.choices[0].delta.content
     if content:
         send_words(content)
+    if reasoning_content:
+        send_words(reasoning_content)
     logging.info(f"推理内容: {reasoning_content_total}")
     logging.info(f"回答内容: {content_total}")
-    return ans
+    return content_total
 
 def login():
     global token
@@ -568,7 +616,7 @@ def login():
 login()
 get()
 logging.info("成功登录")
-send_words("成功登录 请使用‘/ds’进行提问,使用‘/ds (内容)/reason’输出推理过程（仅在模型为r1时接受）使用‘/v3’切换至v3模型，使用‘/r1’切换至r1模型")
+send_words("成功登录 请使用‘/ds’进行提问,使用‘/ds (内容)/reason’输出推理过程（仅在模型为r1时接受）使用‘/v3’切换至v3模型，使用‘/r1’切换至r1模型，使用“/new”开始新对话，使用‘余额’查询余额，使用‘待机’进入待机模式，使用‘stops’停止程序，使用‘/查询歌曲 歌名’查询歌曲列表，使用‘/点歌 歌名 第几首’点歌")
 time.sleep(2)
 times = 0
 words = get()
@@ -616,6 +664,14 @@ while True:
             send_words(blance())
             words = get()
             latest_word = words[0]
+        elif words[0] == "/new":
+            # 用户主动开始新一轮对话，重置上下文
+            send_words("已开启新的对话，历史上下文已清空")
+            logging.info("已清空对话上下文并开始新对话")
+            clear_conversation_context()
+            words = get()
+            latest_word = words[0]
+            time_stemp = time.time()
 
         if (words[0] != latest_word and
             re.search(re.escape("/ds"), words[0])):
@@ -625,8 +681,28 @@ while True:
             if re.search(re.escape("/reason"), words[0]):
                 reason = True
                 qes = qes.replace("/reason", "")
-            ds_o = deepseek_api(qes, ds_model)
-            time.sleep(5)
+            # 统一整理用户提问内容，确保上下文记录干净
+            qes = qes.strip()
+            user_message_recorded = False
+            if not qes:
+                send_words("请提供提问内容")
+                reason = False
+                words = get()
+                latest_word = words[0]
+                time_stemp = time.time()
+                continue
+            append_conversation_message("user", qes)
+            user_message_recorded = True
+            try:
+                answer_text = deepseek_api(qes, ds_model)
+            except Exception:
+                if user_message_recorded:
+                    pop_last_conversation_message()
+                raise
+            if answer_text:
+                # 记录模型回复，供后续轮次继续引用
+                append_conversation_message("assistant", answer_text)
+            time.sleep(1)
             send_words("回答完毕")
             reason = False
             words = get()
@@ -685,9 +761,10 @@ while True:
 
         exit(0)
 
-    except:
+    except Exception as e:
 
         login()
         logging.info("崩溃重启")
+        logging.error(f"主循环出现异常: {e}")
         continue
 
