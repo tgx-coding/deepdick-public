@@ -59,6 +59,25 @@ logging.basicConfig(
 )
 
 
+def cleanup_old_logs(log_dir: str, max_age_days: int = 3):
+    cutoff = time.time() - max_age_days * 86400
+    removed = []
+    try:
+        for entry in os.scandir(log_dir):
+            if not entry.is_file() or not entry.name.lower().endswith(".log"):
+                continue
+            try:
+                if os.path.getmtime(entry.path) < cutoff:
+                    os.remove(entry.path)
+                    removed.append(entry.name)
+            except OSError as exc:
+                logging.warning(f"删除日志失败: {entry.path} 错误: {exc}")
+    except FileNotFoundError:
+        return
+    if removed:
+        logging.info(f"已清除过期日志: {', '.join(removed)}")
+
+
 def trim_conversation_context():
     # 控制本地上下文长度，避免持久化文件无限增长
     global conversation_context
@@ -117,6 +136,7 @@ def clear_conversation_context():
 
 
 load_conversation_context()
+cleanup_old_logs(LOG_DIR)
 
 no_word = ["正在待机", "收到", "余额"]
 ds_model = "deepseek-reasoner"
