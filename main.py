@@ -141,7 +141,6 @@ cleanup_old_logs(LOG_DIR)
 no_word = ["正在待机", "收到", "余额"]
 ds_model = "deepseek-reasoner"
 secret = [os.getenv("username"), os.getenv("password")]
-
 time_stemp = time.time()
 reason = False
 times = 0
@@ -373,16 +372,18 @@ def upload_voice(in_file, parentId,
 
         encoder = MultipartEncoder(fields=fields)
 
-        progress_state = {'last_bucket': -1}
+        # 记录上传进度：每增加 1% 就记录一次，避免仅按 10% 粒度记录
+        progress_state = {'last_percent': -1}
 
         def make_callback(total_length):
             def _callback(monitor):
                 if not total_length:
                     return
+                # 计算已上传百分比（整数）
                 percent = int(monitor.bytes_read * 100 / total_length)
-                bucket = percent // 10
-                if bucket > progress_state['last_bucket']:
-                    progress_state['last_bucket'] = bucket
+                # 仅在百分比增加时记录，确保每 1% 记录一次
+                if percent > progress_state['last_percent']:
+                    progress_state['last_percent'] = percent
                     logging.info(f"上传进度：{percent}% ({monitor.bytes_read}/{total_length} bytes)")
             return _callback
 
@@ -448,13 +449,14 @@ def send_words(context,type=0,interval=0):
         if type:
             logging.info(f"发送音频链接：{context}，时长：{interval}秒")
             json_data = {
-    't': timestemp,
+    't': time_stemp,
     'dateTime': date_string,
     'studentName': studentName,
-    'dataType': 1,
-    'fileUrl': context,
-    'voiceTime': 60,
+    'submitType': 1,
+    'audioFilePath': context,
+    'audioLen': 60,
     'phoneNumber': phoneNumber,
+    'bindId': 0,
 }
 
             response = session.post('https://wxapp.nhedu.net/edu-iot/be/ym-message//post',headers=headers, json=json_data)
@@ -469,29 +471,32 @@ def send_words(context,type=0,interval=0):
             for segment in words_to_spare:
                 time.sleep(1)
                 json_data = {
-                
-    't': timestemp,
+    't': time_stemp,
     'dateTime': date_string,
     'studentName': studentName,
-    'dataType': 0,
-    'content': segment,
+    'submitType': 0,
+    'message': segment,
     'phoneNumber': phoneNumber,
+    'bindId': 0,
 }
                 response = session.post('https://wxapp.nhedu.net/edu-iot/be/ym-message//post',headers=headers, json=json_data)   
         else:
             json_data = {
-    't': timestemp,
+    't': time_stemp,
     'dateTime': date_string,
     'studentName': studentName,
-    'dataType': 0,
-    'content': context,
+    'submitType': 0,
+    'message': context,
     'phoneNumber': phoneNumber,
+    'bindId': 0,
 }
             time.sleep(1)
             response = session.post('https://wxapp.nhedu.net/edu-iot/be/ym-message//post',headers=headers, json=json_data)   
         deresponse=json.loads(response.content)
         if deresponse['msg']!='success':
+
             raise CustomError('send failed')
+            
         time_stemp = time.time()
     except Exception as e:
         logging.error(f"send_words() 出现异常: {e}")
@@ -643,7 +648,6 @@ words = get()
 times = 0
 daiji = False
 latest_word = words[0]
-
 # 主循环：检测新信息并调用 API 返回回复
 while True:
     try:
