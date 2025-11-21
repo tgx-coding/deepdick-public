@@ -5,19 +5,29 @@ import time
 import logging
 import json
 import requests
-import markdown
-import html2text
 import datetime
-from requests_toolbelt import MultipartEncoder
-from requests_toolbelt import MultipartEncoderMonitor
 import ddddocr as dd
-from PIL import Image
-from pydub import AudioSegment
 from openai import OpenAI
+
+import context_utils
+import edu_api
+import music_service
+from context_utils import (
+    append_conversation_message,
+    clear_conversation_context,
+    cleanup_old_logs,
+    load_conversation_context,
+    pop_last_conversation_message,
+)
+from edu_api import get_parentId, upload_voice
+from music_service import get_song, get_voice_list
+from text_utils import markdown_to_text, parse_song_request, replace_non_bmp
 #import pymysql as mysql
 timestemp=time.time()
 timestemp*=1000
+edu_api.timestemp = timestemp
 token=""
+edu_api.token = token
 song_list=[]
 REQUEST_TIMEOUT = 180
 USERNAME = os.getenv("username") or "default_user"
@@ -25,7 +35,9 @@ LOG_DIR = os.path.join("./logs", USERNAME)
 CONTEXT_FILE = os.path.join(LOG_DIR, "conversation_context.json")
 MAX_CONTEXT_MESSAGES = 20
 # 对话上下文缓存，启动时从本地日志目录恢复
-conversation_context = []
+context_utils.CONTEXT_FILE = CONTEXT_FILE
+context_utils.MAX_CONTEXT_MESSAGES = MAX_CONTEXT_MESSAGES
+conversation_context = context_utils.conversation_context
 
 
 class TimeoutSession(requests.Session):
@@ -39,6 +51,8 @@ class TimeoutSession(requests.Session):
 
 
 session = TimeoutSession(timeout=REQUEST_TIMEOUT)
+music_service.session = session
+edu_api.session = session
 class CustomError(Exception):
     def __init__(self, message):
         self.message = message
@@ -57,84 +71,6 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S"
 )
-
-
-def cleanup_old_logs(log_dir: str, max_age_days: int = 3):
-    cutoff = time.time() - max_age_days * 86400
-    removed = []
-    try:
-        for entry in os.scandir(log_dir):
-            if not entry.is_file() or not entry.name.lower().endswith(".log"):
-                continue
-            try:
-                if os.path.getmtime(entry.path) < cutoff:
-                    os.remove(entry.path)
-                    removed.append(entry.name)
-            except OSError as exc:
-                logging.warning(f"删除日志失败: {entry.path} 错误: {exc}")
-    except FileNotFoundError:
-        return
-    if removed:
-        logging.info(f"已清除过期日志: {', '.join(removed)}")
-
-
-def trim_conversation_context():
-    # 控制本地上下文长度，避免持久化文件无限增长
-    global conversation_context
-    if len(conversation_context) > MAX_CONTEXT_MESSAGES:
-        conversation_context = conversation_context[-MAX_CONTEXT_MESSAGES:]
-
-
-def save_conversation_context():
-    # 将当前上下文落盘，供重启后延续会话
-    try:
-        with open(CONTEXT_FILE, "w", encoding="utf-8") as context_file:
-            json.dump(conversation_context, context_file, ensure_ascii=True, indent=2)
-    except Exception as exc:
-        logging.error(f"保存对话上下文失败: {exc}")
-
-
-def load_conversation_context():
-    global conversation_context
-    if not os.path.exists(CONTEXT_FILE):
-        conversation_context = []
-        return
-    try:
-        with open(CONTEXT_FILE, "r", encoding="utf-8") as context_file:
-            data = json.load(context_file)
-            conversation_context = data if isinstance(data, list) else []
-            trim_conversation_context()
-    except Exception as exc:
-        logging.error(f"加载对话上下文失败: {exc}")
-        conversation_context = []
-
-
-def append_conversation_message(role, content):
-    # 将新消息写入内存与磁盘，保持角色标签
-    if not content:
-        return
-    conversation_context.append({"role": role, "content": content})
-    trim_conversation_context()
-    save_conversation_context()
-
-
-def pop_last_conversation_message():
-    # 在上游出错时撤销最近一次入栈，避免脏数据
-    if conversation_context:
-        conversation_context.pop()
-        save_conversation_context()
-
-
-def clear_conversation_context():
-    # /new 指令触发时清空内存与本地文件
-    conversation_context.clear()
-    if os.path.exists(CONTEXT_FILE):
-        try:
-            os.remove(CONTEXT_FILE)
-        except OSError as exc:
-            logging.error(f"删除对话上下文文件失败: {exc}")
-
-
 load_conversation_context()
 cleanup_old_logs(LOG_DIR)
 
@@ -148,54 +84,6 @@ times = 0
 username=os.getenv("username") #将用户名存储到变量中方便读取
 
 
-
-
-def markdown_to_text(markdown_text):
-    # 将 Markdown 转换为 HTML，再转换为纯文本
-    html_content = markdown.markdown(markdown_text)
-    text_maker = html2text.HTML2Text()
-    text_maker.ignore_links = True
-    text_maker.ignore_images = True
-    text_maker.ignore_emphasis = True
-    plain_text = text_maker.handle(html_content)
-    return plain_text
-def time_to_seconds(time_str):
-    """
-    将"x分x秒"格式的时间转换为总秒数
-    
-    参数:
-        time_str: 字符串，格式如"5分30秒"、"1分"、"45秒"等
-    
-    返回:
-        int: 总秒数
-    """
-    # 初始化分钟和秒数
-    minutes = 0
-    seconds = 0
-    
-    # 检查字符串中是否包含"分"
-    if "分" in time_str:
-        # 分割字符串
-        parts = time_str.split("分")
-        
-        # 提取分钟部分
-        if parts[0]:  # 确保分钟部分不为空
-            minutes = int(parts[0])
-        
-        # 提取秒数部分（如果存在）
-        if len(parts) > 1 and parts[1] and "秒" in parts[1]:
-            seconds_str = parts[1].replace("秒", "")
-            if seconds_str:  # 确保秒数部分不为空
-                seconds = int(seconds_str)
-    elif "秒" in time_str:
-        # 只有秒数的情况
-        seconds_str = time_str.replace("秒", "")
-        if seconds_str:  # 确保秒数部分不为空
-            seconds = int(seconds_str)
-    
-    # 计算总秒数
-    total_seconds = minutes * 60 + seconds
-    return total_seconds
 retry_times=0
 def get():
     global times,studentName,phoneNumber
@@ -240,6 +128,7 @@ def get():
             words.append(i['content'])
         studentName=messages['result']['rows'][0]['studentName']
         phoneNumber=messages['result']['rows'][0]['parentPhone']
+        edu_api.phoneNumber = phoneNumber
 
         if words:
             if words[0] is not None:
@@ -257,163 +146,6 @@ def get():
     except Exception as e:
         logging.error(f"get() 出现异常: {e}")
         return get()
-def get_voice_list(name,from_where=1,retry_times=0):
-    try:
-        logging.info(f"查询歌曲:{name}")
-        if retry_times>=10:
-            retry_times=0
-            raise CustomError("get voice list failed")
-        response=session.get(f"https://api.vkeys.cn/v2/music/netease?word={name}")
-        voice_list=json.loads(response.content)
-        
-        if voice_list["code"]!=200:
-            retry_times+=1
-            logging.info(f"获取歌曲列表重试次数：{retry_times}")
-            return get_voice_list(name,from_where,retry_times)
-        de_voice_list=[]
-        for i in voice_list["data"]:
-            de_voice_list.append(f"{i["song"]}---{i["singer"]}")
-        
-        return de_voice_list
-    except Exception as e:
-        if from_where:
-            send_words("获取失败")
-        else:
-            return []
-        logging.error(f"出现异常: {e}")
-        return
-        
-def get_song(name,choose=1,quality=4,retry_times=0):
-    try:
-        response=session.get(f"https://api.vkeys.cn/v2/music/netease?word={name}&choose={choose}&quality={quality}")
-        voice=json.loads(response.content)
-        if voice['code']!=200:
-            if retry_times>=10:
-                retry_times=0
-                raise CustomError("get voice file failed")
-            else:
-                retry_times+=1
-                logging.info(f"重试获取歌曲次数：{retry_times}")
-                return get_song(name,choose,quality,retry_times)
-        else:
-            voice_url=voice["data"]["url"]
-            interval=time_to_seconds(voice["data"]["interval"])
-            logging.info(f"下载url：{voice_url}")
-            file=session.get(voice_url)
-            logging.info("下载完成")
-            open('./1.mp3','wb').write(file.content)
-            return interval
-    except Exception as e:
-        send_words("获取歌曲失败")
-        logging.error(f"出现异常: {e}")
-def my_callback(monitor):
-    progress = (monitor.bytes_read / monitor.len) * 100
-    logging.info("\r 文件上传进度：%d%%(%d/%d)" % (progress, monitor.bytes_read, monitor.len), end=" ")
-def get_parentId(relation):
-    headers = {
-    'Accept': 'application/json, text/plain, */*',
-    'Accept-Language': 'zh-CN,zh;q=0.9,en-GB;q=0.8,en;q=0.7,en-US;q=0.6',
-    'Connection': 'keep-alive',
-    'Referer': 'https://wxapp.nhedu.net/edu-iot/mobile/',
-    'Sec-Fetch-Dest': 'empty',
-    'Sec-Fetch-Mode': 'cors',
-    'Sec-Fetch-Site': 'same-origin',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0',
-    'edu-token': f'{token}',
-    'sec-ch-ua': '"Microsoft Edge";v="141", "Not?A_Brand";v="8", "Chromium";v="141"',
-    'sec-ch-ua-mobile': '?0',
-    'sec-ch-ua-platform': '"Windows"',
-    'sso-user': 'true',
-    
-}
-
-    params = {
-        't': f'{timestemp}',
-    }
-
-    response = session.get('https://wxapp.nhedu.net/edu-iot/be/ym-message//parents', params=params,headers=headers)
-    result=json.loads(response.content)
-    for i in result["result"]:
-        if i["relation"]==relation:
-            logging.info(f"获取家长id：{i["parentId"]}")
-            return i["parentId"]
-def upload_voice(in_file, parentId,
-                 time=time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime()),
-                 max_retries: int = 3,
-                 chunk_size: int = 256 * 1024):
-    filename = f"{parentId}_{phoneNumber}_{time}.wav"
-    fields = {
-        'parentId': str(parentId),
-        'mobile': str(phoneNumber),
-        'file': (filename, in_file, 'application/octet-stream')
-    }
-
-    if hasattr(in_file, "seek"):
-        in_file.seek(0)
-
-    try:
-        headers = {
-    'Accept': 'application/json, text/plain, */*',
-    'Accept-Language': 'zh-CN,zh;q=0.9,en-GB;q=0.8,en;q=0.7,en-US;q=0.6',
-    'Connection': 'keep-alive',
-    'Origin': 'https://wxapp.nhedu.net',
-    'Referer': 'https://wxapp.nhedu.net/edu-iot/mobile/',
-    'Sec-Fetch-Dest': 'empty',
-    'Sec-Fetch-Mode': 'cors',
-    'Sec-Fetch-Site': 'same-origin',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0',
-    'edu-token': f'{token}',
-    'sec-ch-ua': '"Microsoft Edge";v="141", "Not?A_Brand";v="8", "Chromium";v="141"',
-    'sec-ch-ua-mobile': '?0',
-    'sec-ch-ua-platform': '"Windows"',
-    'sso-user': 'true',
-    
-}
-
-        encoder = MultipartEncoder(fields=fields)
-
-        # 记录上传进度：每增加 1% 就记录一次，避免仅按 10% 粒度记录
-        progress_state = {'last_percent': -1}
-
-        def make_callback(total_length):
-            def _callback(monitor):
-                if not total_length:
-                    return
-                # 计算已上传百分比（整数）
-                percent = int(monitor.bytes_read * 100 / total_length)
-                # 仅在百分比增加时记录，确保每 1% 记录一次
-                if percent > progress_state['last_percent']:
-                    progress_state['last_percent'] = percent
-                    logging.info(f"上传进度：{percent}% ({monitor.bytes_read}/{total_length} bytes)")
-            return _callback
-
-        monitor = MultipartEncoderMonitor(encoder, make_callback(encoder.len))
-        headers['Content-Type'] = monitor.content_type
-
-        logging.info("正在上传")
-        response = session.post(
-        'https://wxapp.nhedu.net/edu-iot/be/ym-message//upload-voice',
-        headers=headers,
-        data=monitor,
-        timeout=180,
-    )
-
-        deresponse=json.loads(response.content)
-        if deresponse['msg']!='success':
-            raise CustomError('UPLOAD failed')
-        upload_file_url=deresponse["result"]
-        logging.info("成功")
-        return upload_file_url
-
-    except Exception as exc:
-        logging.error(f"上传失败: {exc}")
-        send_words("请重试")
-        return None
-
-def mp3_to_wav(file_path="./1.mp3"):
-    song = AudioSegment.from_mp3(file_path)
-    song.export("1.wav", format="wav")
-    return
 
 
 def send_words(context,type=0,interval=0):
@@ -501,22 +233,8 @@ def send_words(context,type=0,interval=0):
     except Exception as e:
         logging.error(f"send_words() 出现异常: {e}")
 
-def replace_non_bmp(text, replacement="(无法显示)"):
-    return re.sub(r'[^\u0000-\uFFFF]', replacement, text)
-def parse_song_request(text):
-    """
-    解析点歌请求，提取歌曲名和序号
-    格式：/点歌XXX第XX首
-    """
-    pattern = r'/点歌(.+?)第(\d+)首'
-    match = re.search(pattern, text)
-    
-    if match:
-        song_name = match.group(1)  # 歌曲名
-        song_number = match.group(2)  # 序号
-        return song_name, int(song_number)
-    else:
-        return None, None
+music_service.send_words = send_words
+edu_api.send_words = send_words
 
 def blance():
     url = "https://api.deepseek.com/user/balance"
@@ -631,6 +349,7 @@ def login():
     response = session.post('https://wxapp.nhedu.net/edu-base/be/open/login',headers=headers, json=json_data)
     deresponse=json.loads(response.content)
     token=deresponse["result"]["token"]
+    edu_api.token = token
     if deresponse['msg']!='success':
         raise CustomError("login failed")
         exit(-1)
@@ -757,8 +476,13 @@ while True:
                 logging.info(f"正在点歌: {song_name} 第{song_number}首")
                 interval=get_song(song_name, song_number)
                 if interval:
+                    parent_id = get_parentId(relation)
+                    if not parent_id:
+                        send_words("获取家长信息失败")
+                        logging.info("获取家长信息失败")
+                        continue
                     with open("./1.mp3", "rb") as f:
-                        upload_url = upload_voice(f, get_parentId(relation))
+                        upload_url = upload_voice(f, parent_id)
                         if upload_url:
                             send_words(upload_url, 1, interval)
                             logging.info("点歌成功")
