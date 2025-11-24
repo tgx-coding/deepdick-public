@@ -115,3 +115,14 @@ def parse_song_request(text: str) -> Tuple[Optional[str], Optional[int]]:
     except ValueError:
         song_number = chinese_numeral_to_int(song_number_raw)
     return (song_name, song_number) if song_number else (None, None)
+
+def parse_playlist_index(command):
+    pattern_alt = r"/歌单第([\d一二三四五六七八九十百千万零两壹贰叁肆伍陆柒捌玖拾佰仟万〇○]+)首"
+    match = re.search(pattern_alt, command)
+    if not match:
+        return None
+    index_raw = match.group(1)
+    try:
+        return int(index_raw)
+    except ValueError:
+        return chinese_numeral_to_int(index_raw)

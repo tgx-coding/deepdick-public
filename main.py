@@ -12,6 +12,7 @@ from openai import OpenAI
 import context_utils
 import edu_api
 import music_service
+import text_utils
 from context_utils import (
     append_conversation_message,
     clear_conversation_context,
@@ -34,6 +35,15 @@ USERNAME = os.getenv("username") or "default_user"
 LOG_DIR = os.path.join("./logs", USERNAME)
 CONTEXT_FILE = os.path.join(LOG_DIR, "conversation_context.json")
 MAX_CONTEXT_MESSAGES = 20
+SONG_LIST_ID_FILE = os.path.join(os.getcwd(), "song_list_id.txt")
+# Ensure the song list ID placeholder exists for downstream components
+if not os.path.exists(SONG_LIST_ID_FILE):
+    open(SONG_LIST_ID_FILE, "w", encoding="utf-8").close()
+song_list_id = None
+with open(SONG_LIST_ID_FILE, "r", encoding="utf-8") as _f:
+    _content = _f.read().strip()
+    if _content:
+        song_list_id = _content
 # 对话上下文缓存，启动时从本地日志目录恢复
 context_utils.CONTEXT_FILE = CONTEXT_FILE
 context_utils.MAX_CONTEXT_MESSAGES = MAX_CONTEXT_MESSAGES
@@ -194,9 +204,10 @@ def send_words(context,type=0,interval=0):
             response = session.post('https://wxapp.nhedu.net/edu-iot/be/ym-message//post',headers=headers, json=json_data)
             os.system("rm -f 1.mp3")
             return
-        logging.info(f"发送信息: {context}")
         context = markdown_to_text(context)
         context = replace_non_bmp(context)
+        logging.info(f"发送信息: {context}")
+        
         if len(context) >= 160:
             # 分段发送
             words_to_spare = [context[i:i + 150] for i in range(0, len(context), 160)]
@@ -496,6 +507,79 @@ while True:
             else:
                 send_words("无法解析点歌请求")
                 logging.info("无法解析点歌请求")
+        elif words[0] != latest_word and re.search(re.escape("/设置歌单id"), words[0]):
+            send_words("收到请求")
+            logging.info(f"设置歌单id: {words[0]}")
+            song_list_id=words[0].replace("/设置歌单id","").strip()
+            with open(SONG_LIST_ID_FILE, "w", encoding="utf-8") as f:
+                f.write(song_list_id)
+            song_list=music_service.get_personal_song_list(song_list_id)
+            send_words(f"已设置歌单id为: {song_list_id}")
+            logging.info(f"已设置歌单id为: {song_list_id}")
+        elif words[0] != latest_word and re.search(re.escape("/获取歌单"), words[0]):
+            send_words("收到请求")
+            logging.info(f"获取歌单: {words[0]}")
+            if not song_list_id:
+                send_words("请先使用‘/设置歌单id 歌单id’设置歌单id")
+                logging.info("未设置歌单id")
+                continue
+            try:
+                
+                if not song_list:
+                    song_list=music_service.get_personal_song_list(song_list_id)
+                if not song_list:
+                    send_words("获取歌单失败，请检查歌单id是否正确")
+                    logging.info("获取歌单失败")
+                    continue
+                if song_list:
+                    send_words("获取成功")
+                    music_service.send_personal_song_list(song_list)
+                logging.info("获取歌单成功")
+            except Exception as e:
+                send_words("获取歌单失败")
+                logging.error(f"获取歌单出现异常: {e}")
+        elif words[0] != latest_word and re.search(re.escape("/歌单第"), words[0]):
+            send_words("收到请求")
+            logging.info(f"歌单点歌: {words[0]}")
+            song_number = text_utils.parse_playlist_index(words[0])
+            song_list=music_service.get_personal_song_list(song_list_id)
+            if not song_number:
+                send_words("无法解析歌单序号，请重试")
+                logging.info("无法解析歌单序号")
+                continue
+            if not isinstance(song_list, dict) or not song_list:
+                send_words("歌单为空，请先使用‘/获取歌单’")
+                logging.info("歌单为空")
+                continue
+            playlist_entries = list(song_list.items())
+            if song_number < 1 or song_number > len(playlist_entries):
+                send_words("歌单序号超出范围")
+                logging.info("歌单序号超出范围")
+                continue
+            target_name,target_id= playlist_entries[song_number - 1]
+            send_words(f"正在点歌歌单第{song_number}首: {target_name} id:{target_id}")
+            logging.info(f"正在点歌歌单第{song_number}首: {target_name}id:{target_id}")
+            interval = get_song(id = target_id)
+            if interval is None:
+                send_words("点歌失败")
+                logging.info("歌单点歌失败")
+                continue
+            parent_id = get_parentId(relation)
+            if not parent_id:
+                send_words("获取家长信息失败")
+                logging.info("获取家长信息失败")
+                continue
+            with open("./1.mp3", "rb") as f:
+                upload_url = upload_voice(f, parent_id)
+                if upload_url:
+                    send_words(upload_url, 1, interval)
+                    logging.info("歌单点歌成功")
+                    send_words("点歌成功")
+                else:
+                    send_words("点歌失败")
+                    logging.info("歌单点歌失败")
+            
+            
         time.sleep(1)
         get()
 
