@@ -39,12 +39,17 @@ def get_voice_list(name, from_where=1, retry_times=0):
         return []
 
 
-def get_song(name, choose=1, quality=4, retry_times=0, output_path="./1.mp3") -> Optional[int]:
+def get_song(name=None,id=None, choose=1, quality=4, retry_times=0, output_path="./1.mp3") -> Optional[int]:
     _ensure_session()
     try:
-        response = session.get(
-            f"https://api.vkeys.cn/v2/music/netease?word={name}&choose={choose}&quality={quality}"
+        if id is not None:
+            response = session.get(
+            f"https://api.vkeys.cn/v2/music/netease?id={id}&quality={quality}"
         )
+        else:
+            response = session.get(
+                f"https://api.vkeys.cn/v2/music/netease?word={name}&choose={choose}&quality={quality}"
+            )
         voice = json.loads(response.content)
         if voice["code"] != 200:
             if retry_times >= 10:
@@ -70,3 +75,34 @@ def get_song(name, choose=1, quality=4, retry_times=0, output_path="./1.mp3") ->
 def mp3_to_wav(file_path="./1.mp3", wav_path="1.wav"):
     song = AudioSegment.from_mp3(file_path)
     song.export(wav_path, format="wav")
+
+def get_personal_song_list(id):
+    try:
+        headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0',
+    }
+        response=session.get(f"https://apis.netstart.cn/music/playlist/track/all?id={id}",headers=headers)
+        lists=json.loads(response.content)
+        if lists["code"]!=200:
+            raise RuntimeError("get song list failed")
+        song_list={}
+        for i in lists["songs"]:
+            song_list[i["name"]]=i["id"]
+        if song_list:
+            send_words("获取歌单成功")
+        return song_list
+    except Exception as e:
+        if send_words:
+            send_words("获取歌单失败")
+        logging.error(f"出现异常: {e}")
+
+def send_personal_song_list(song_list):
+    try:
+        count=1
+        for i in song_list:
+            send_words(f"{count}--{i}")
+            count += 1
+    except Exception as e:
+        if send_words:
+            send_words("发送歌单失败")
+        logging.error(f"出现异常: {e}")
