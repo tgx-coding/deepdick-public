@@ -97,7 +97,7 @@ username=os.getenv("username") #将用户名存储到变量中方便读取
 retry_times=0
 def get():
     global times,studentName,phoneNumber
-    time.sleep(0.5)
+    time.sleep(1.5)
     times += 1
     if times >= 10:
         exit(-1)
@@ -143,7 +143,8 @@ def get():
         if words:
             if words[0] is not None:
                 times = 0
-                logging.info(f"获取信息: {words[0]}")
+                if words[0]!="正在待机":#防止日志在待机时增长过大
+                    logging.info(f"获取信息: {words[0]}")
                 return words
             else:
                 time.sleep(5)
@@ -542,7 +543,8 @@ while True:
             send_words("收到请求")
             logging.info(f"歌单点歌: {words[0]}")
             song_number = text_utils.parse_playlist_index(words[0])
-            song_list=music_service.get_personal_song_list(song_list_id)
+            if not song_list:
+                song_list=music_service.get_personal_song_list(song_list_id)
             if not song_number:
                 send_words("无法解析歌单序号，请重试")
                 logging.info("无法解析歌单序号")
