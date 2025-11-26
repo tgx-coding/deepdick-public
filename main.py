@@ -486,7 +486,7 @@ while True:
             if song_name and song_number:
                 send_words(f"正在点歌: {song_name} 第{song_number}首")
                 logging.info(f"正在点歌: {song_name} 第{song_number}首")
-                interval=get_song(song_name, song_number)
+                interval=get_song(name=song_name, choose=song_number)
                 if interval:
                     parent_id = get_parentId(relation)
                     if not parent_id:
@@ -601,5 +601,6 @@ while True:
         logging.info("崩溃重启")
         logging.error(f"主循环出现异常: {e}")
         continue
+
 
 
