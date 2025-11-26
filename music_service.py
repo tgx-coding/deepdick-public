@@ -57,7 +57,7 @@ def get_song(name=None,id=None, choose=1, quality=4, retry_times=0, output_path=
                 raise RuntimeError("get voice file failed")
             retry_times += 1
             logging.info(f"重试获取歌曲次数：{retry_times}")
-            return get_song(name, choose, quality, retry_times, output_path)
+            return get_song(name,id, choose, quality, retry_times, output_path)
         voice_url = voice["data"]["url"]
         interval = time_to_seconds(voice["data"]["interval"])
         logging.info(f"下载url：{voice_url}")
