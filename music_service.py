@@ -1,4 +1,4 @@
-import json
+importvoice[
 import logging
 from typing import Optional
 
@@ -20,7 +20,7 @@ def get_voice_list(name, from_where=1, retry_times=0):
     _ensure_session()
     try:
         logging.info(f"查询歌曲:{name}")
-        if retry_times >= 10:
+        if int(retry_times) >= 10:
             raise RuntimeError("get voice list failed")
         response = session.get(f"https://api.vkeys.cn/v2/music/netease?word={name}")
         voice_list = json.loads(response.content)
@@ -52,7 +52,8 @@ def get_song(name=None,id=None, choose=1, quality=4, retry_times=0, output_path=
             )
         voice = json.loads(response.content)
         if voice["code"] != 200:
-            if retry_times >= 10:
+            logging.info(voice['code'])
+            if int(retry_times) >= 10:
                 raise RuntimeError("get voice file failed")
             retry_times += 1
             logging.info(f"重试获取歌曲次数：{retry_times}")
