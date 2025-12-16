@@ -95,9 +95,10 @@ username=os.getenv("username") #将用户名存储到变量中方便读取
 
 
 retry_times=0
+
 def get():
     global times,studentName,phoneNumber
-    time.sleep(1.5)
+    time.sleep(3)
     times += 1
     if times >= 10:
         exit(-1)
@@ -136,8 +137,9 @@ def get():
         words=[]
         for i in messages['result']['rows']:
             words.append(i['content'])
+        if phoneNumber==None or phoneNumber=='':
+            phoneNumber=messages['result']['rows'][0]['parentPhone']
         studentName=messages['result']['rows'][0]['studentName']
-        phoneNumber=messages['result']['rows'][0]['parentPhone']
         edu_api.phoneNumber = phoneNumber
 
         if words:
@@ -366,10 +368,38 @@ def login():
         raise CustomError("login failed")
         exit(-1)
 
+def get_phoneNumber(relation):
+    headers = {
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'zh-CN,zh;q=0.9,en-GB;q=0.8,en;q=0.7,en-US;q=0.6',
+        'Connection': 'keep-alive',
+        'Referer': 'https://wxapp.nhedu.net/edu-iot/mobile/',
+        'Sec-Fetch-Dest': 'empty',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Site': 'same-origin',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0',
+        'edu-token': f'{token}',
+        'sec-ch-ua': '"Microsoft Edge";v="141", "Not?A_Brand";v="8", "Chromium";v="141"',
+        'sec-ch-ua-mobile': '?0',
+        'sec-ch-ua-platform': '"Windows"',
+        'sso-user': 'true',
+    }
 
+    params = {
+        't': f'{timestemp}',
+    }
+
+    response = session.get('https://wxapp.nhedu.net/edu-iot/be/ym-message//parents', params=params, headers=headers)
+    result = json.loads(response.content)
+    for item in result.get("result", []):
+        if item.get("relation") == relation:
+            logging.info(f"获取家长id：{item['mobile']}")
+            return item.get("mobile")
+    return None
 
 # 登录操作
 login()
+phoneNumber=get_phoneNumber(relation)
 get()
 logging.info("成功登录")
 send_words("成功登录 请使用‘/ds’进行提问,使用‘/ds (内容)/reason’输出推理过程（仅在模型为r1时接受）使用‘/v3’切换至v3模型，使用‘/r1’切换至r1模型，使用“/new”开始新对话，使用‘/查询歌曲 歌名’查询歌曲列表，使用‘/点歌 歌名 第几首’点歌")
