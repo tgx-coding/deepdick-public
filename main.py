@@ -393,7 +393,7 @@ def get_phoneNumber(relation):
     result = json.loads(response.content)
     for item in result.get("result", []):
         if item.get("relation") == relation:
-            logging.info(f"获取家长id：{item['mobile']}")
+            logging.info(f"获取家长电话：{item['mobile']}")
             return item.get("mobile")
     return None
 
