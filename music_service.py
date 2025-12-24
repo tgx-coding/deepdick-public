@@ -100,9 +100,16 @@ def get_personal_song_list(id):
 def send_personal_song_list(song_list):
     try:
         count=1
+        temp=""
         for i in song_list:
-            send_words(f"{count}--{i}")
+            temp+=(f"{count}--{i}\n")
             count += 1
+            if count%10==0:
+                send_words(temp)
+                temp=""
+        if temp:
+            send_words(temp)
+            temp=""
     except Exception as e:
         if send_words:
             send_words("发送歌单失败")
