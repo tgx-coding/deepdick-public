@@ -212,7 +212,7 @@ def send_words(context,type=0,interval=0):
         context = replace_non_bmp(context)
         logging.info(f"发送信息: {context}")
         
-        if len(context) >= 160:
+        if len(context) >= 250:
             # 分段发送
             words_to_spare = [context[i:i + 150] for i in range(0, len(context), 160)]
             for segment in words_to_spare:
@@ -634,6 +634,7 @@ while True:
         logging.info("崩溃重启")
         logging.error(f"主循环出现异常: {e}")
         continue
+
 
 
 
