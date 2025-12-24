@@ -157,6 +157,7 @@ def get():
     except KeyboardInterrupt:
         exit(0)
     except Exception as e:
+        logging.error(response.content)
         logging.error(f"get() 出现异常: {e}")
         return get()
 
@@ -238,6 +239,7 @@ def send_words(context,type=0,interval=0):
 }
             time.sleep(1)
             response = session.post('https://wxapp.nhedu.net/edu-iot/be/ym-message//post',headers=headers, json=json_data)   
+        logging.info(response.content)
         deresponse=json.loads(response.content)
         if deresponse['msg']!='success':
 
@@ -403,6 +405,7 @@ phoneNumber=get_phoneNumber(relation)
 get()
 logging.info("成功登录")
 send_words("成功登录 请使用‘/ds’进行提问,使用‘/ds (内容)/reason’输出推理过程（仅在模型为r1时接受）使用‘/v3’切换至v3模型，使用‘/r1’切换至r1模型，使用“/new”开始新对话，使用‘/查询歌曲 歌名’查询歌曲列表，使用‘/点歌 歌名 第几首’点歌")
+send_words("使用‘/设置歌单id 歌单id’设置网易云歌单id，使用‘/获取歌单’获取歌单内容，使用‘/歌单第几首’点歌")
 time.sleep(2)
 times = 0
 words = get()
