@@ -172,6 +172,9 @@ def get():
     except Exception as e:
         if response:
             logging.error(response.content)
+        if messages['result']['rows'] == None:
+            return [" "]
+        
         logging.error(f"get() 出现异常: {e}")
         return get()
 
