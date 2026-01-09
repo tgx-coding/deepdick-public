@@ -464,7 +464,6 @@ while True:
                 words = get()
                 if words[0] != latest_word and words[0] != "正在待机":
                     daiji = False
-                    cleanup_old_logs(LOG_DIR)
                     words = get()
                     time_stemp = time.time()
                     break
@@ -654,6 +653,7 @@ while True:
         logging.info("崩溃重启")
         logging.error(f"主循环出现异常: {e}")
         continue
+
 
 
 
