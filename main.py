@@ -23,7 +23,6 @@ from context_utils import (
 from edu_api import get_parentId, upload_voice
 from music_service import get_song, get_voice_list
 from text_utils import markdown_to_text, parse_song_request, replace_non_bmp
-#import pymysql as mysql
 timestemp=time.time()
 timestemp*=1000
 edu_api.timestemp = timestemp
@@ -35,10 +34,23 @@ USERNAME = os.getenv("username") or "default_user"
 LOG_DIR = os.path.join("./logs", USERNAME)
 CONTEXT_FILE = os.path.join(LOG_DIR, "conversation_context.json")
 MAX_CONTEXT_MESSAGES = 20
-SONG_LIST_ID_FILE = os.path.join(os.getcwd(), "song_list_id.txt")
+# Ensure per-user log directory exists early (used by context + song list id persistence)
+os.makedirs(LOG_DIR, exist_ok=True)
+
+# Persist song list id under the user's log directory.
+# Backward compatible: migrate legacy ./song_list_id.txt to LOG_DIR on first run.
+LEGACY_SONG_LIST_ID_FILE = os.path.join(os.getcwd(), "song_list_id.txt")
+SONG_LIST_ID_FILE = os.path.join(LOG_DIR, "song_list_id.txt")
+if not os.path.exists(SONG_LIST_ID_FILE) and os.path.exists(LEGACY_SONG_LIST_ID_FILE):
+    try:
+        os.replace(LEGACY_SONG_LIST_ID_FILE, SONG_LIST_ID_FILE)
+    except OSError:
+        pass
+
 # Ensure the song list ID placeholder exists for downstream components
 if not os.path.exists(SONG_LIST_ID_FILE):
     open(SONG_LIST_ID_FILE, "w", encoding="utf-8").close()
+
 song_list_id = None
 with open(SONG_LIST_ID_FILE, "r", encoding="utf-8") as _f:
     _content = _f.read().strip()
@@ -69,7 +81,8 @@ class CustomError(Exception):
 os.environ['TZ'] = 'Asia/Shanghai'
 time.tzset()
 year = datetime.datetime.now().year
-os.makedirs(f"./logs/{os.getenv("username")}", exist_ok=True)  # 确保 logs 文件夹存在
+# LOG_DIR is created above; keep this as a no-op safety in case of refactors.
+os.makedirs(LOG_DIR, exist_ok=True)  # 确保 logs 文件夹存在
 studentName=''
 phoneNumber=''
 relation=os.getenv("parents_name")
@@ -100,7 +113,7 @@ def get():
     global times,studentName,phoneNumber
     time.sleep(3)
     times += 1
-    if times >= 10:
+    if times >= 20:
         exit(-1)
     try:
         
@@ -125,7 +138,7 @@ def get():
     't': timestemp,
     'pageNo': 1,
     'pageSize': 10,
-    'startTime': '2025-01-01T00:00:00+08:00',
+    'startTime': f'{year}-01-01T00:00:00+08:00',
     'endTime': f'{year}-12-31T23:59:59+08:00',
     'pageType': 'first',
 }
@@ -157,7 +170,8 @@ def get():
     except KeyboardInterrupt:
         exit(0)
     except Exception as e:
-        logging.error(response.content)
+        if response:
+            logging.error(response.content)
         logging.error(f"get() 出现异常: {e}")
         return get()
 
@@ -239,7 +253,7 @@ def send_words(context,type=0,interval=0):
 }
             time.sleep(1)
             response = session.post('https://wxapp.nhedu.net/edu-iot/be/ym-message//post',headers=headers, json=json_data)   
-        logging.info(response.content)
+        
         deresponse=json.loads(response.content)
         if deresponse['msg']!='success':
 
@@ -247,6 +261,8 @@ def send_words(context,type=0,interval=0):
             
         time_stemp = time.time()
     except Exception as e:
+        if response:
+            logging.error(response.content)
         logging.error(f"send_words() 出现异常: {e}")
 
 music_service.send_words = send_words
@@ -445,6 +461,7 @@ while True:
                 words = get()
                 if words[0] != latest_word and words[0] != "正在待机":
                     daiji = False
+                    cleanup_old_logs(LOG_DIR)
                     words = get()
                     time_stemp = time.time()
                     break
