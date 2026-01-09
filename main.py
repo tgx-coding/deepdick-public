@@ -113,7 +113,7 @@ def get():
     global times,studentName,phoneNumber
     time.sleep(3)
     times += 1
-    if times >= 10:
+    if times >= 20:
         exit(-1)
     try:
         
@@ -138,7 +138,7 @@ def get():
     't': timestemp,
     'pageNo': 1,
     'pageSize': 10,
-    'startTime': '2025-01-01T00:00:00+08:00',
+    'startTime': f'{year}-01-01T00:00:00+08:00',
     'endTime': f'{year}-12-31T23:59:59+08:00',
     'pageType': 'first',
 }
@@ -461,6 +461,7 @@ while True:
                 words = get()
                 if words[0] != latest_word and words[0] != "正在待机":
                     daiji = False
+                    cleanup_old_logs(LOG_DIR)
                     words = get()
                     time_stemp = time.time()
                     break
