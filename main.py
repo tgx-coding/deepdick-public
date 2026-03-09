@@ -142,7 +142,7 @@ def get():
     'endTime': f'{year}-12-31T23:59:59+08:00',
     'pageType': 'first',
 }
-        response = session.post('https://wxapp.nhedu.net/edu-iot/be/ym-message//list',headers=headers, json=json_data)
+        response = session.post('https://wxapp.nhedu.net/edu-iot/be/ym-message//queryMessages',headers=headers, json=json_data)
         deresponse=json.loads(response.content)
         if deresponse['msg']!='success':
             raise CustomError('get messages failed')
@@ -653,6 +653,7 @@ while True:
         logging.info("崩溃重启")
         logging.error(f"主循环出现异常: {e}")
         continue
+
 
 
 
