@@ -9,7 +9,6 @@ services:
     volumes:
       - ./logs:/usr/src/app/logs
     environment:
-      - username=
-      - password=
+      - wechat_login_code=
       - API_KEY=
       - parents_name=

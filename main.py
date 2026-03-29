@@ -8,7 +8,7 @@ import requests
 import datetime
 import ddddocr as dd
 from openai import OpenAI
-
+code = os.getenv("wechat_login_code") #将登录code存储到变量中方便读取
 import context_utils
 import edu_api
 import music_service
@@ -99,7 +99,7 @@ cleanup_old_logs(LOG_DIR)
 
 no_word = ["正在待机", "收到", "余额"]
 ds_model = "deepseek-reasoner"
-secret = [os.getenv("username"), os.getenv("password")]
+# secret = [os.getenv("username"), os.getenv("password")]
 time_stemp = time.time()
 reason = False
 times = 0
@@ -118,22 +118,27 @@ def get():
     try:
         
         headers = {
-    'Accept': 'application/json, text/plain, */*',
-    'Accept-Language': 'zh-CN,zh;q=0.9,en-GB;q=0.8,en;q=0.7,en-US;q=0.6',
+    'Cache-Control': 'no-cache',
     'Connection': 'keep-alive',
-    'Content-Type': 'application/json; charset=UTF-8',
     'Origin': 'https://wxapp.nhedu.net',
+    'Pragma': 'no-cache',
     'Referer': 'https://wxapp.nhedu.net/edu-iot/mobile/',
     'Sec-Fetch-Dest': 'empty',
     'Sec-Fetch-Mode': 'cors',
     'Sec-Fetch-Site': 'same-origin',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0',
-    'edu-token': f'{token}',
-    'sec-ch-ua': '"Microsoft Edge";v="141", "Not?A_Brand";v="8", "Chromium";v="141"',
-    'sec-ch-ua-mobile': '?0',
-    'sec-ch-ua-platform': '"Windows"',
+    'User-Agent': 'Mozilla/5.0 (Linux; Android 16; 25102RKBEC Build/BP2A.250605.031.A3; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/142.0.7444.173 Mobile Safari/537.36 XWEB/1420229 MMWEBSDK/20260101 MMWEBID/8824 REV/f54f4fa14ece7d4915b69ce007dd50b11f259aed MicroMessenger/8.0.69.3040(0x2800453F) WeChat/arm64 Weixin NetType/WIFI Language/zh_CN ABI/arm64',
+    'accept': 'application/json, text/plain, */*',
+    'accept-language': 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7',
+    'content-type': 'application/json; charset=UTF-8',
+    'edu-token': token,
+    'sec-ch-ua': '"Chromium";v="142", "Android WebView";v="142", "Not_A Brand";v="99"',
+    'sec-ch-ua-mobile': '?1',
+    'sec-ch-ua-platform': '"Android"',
     'sso-user': 'true',
+    'x-requested-with': 'com.tencent.mm',
+    # 'Cookie': 'sl-session=xxB8Wj6QrmktzotWSI9laQ==; edu-token=b21df2a9-44c5-4b76-a05b-1ade349356f4',
 }
+
         json_data = {
     't': timestemp,
     'pageNo': 1,
@@ -142,17 +147,23 @@ def get():
     'endTime': f'{year}-12-31T23:59:59+08:00',
     'pageType': 'first',
 }
-        response = session.post('https://wxapp.nhedu.net/edu-iot/be/ym-message//queryMessages',headers=headers, json=json_data)
+        response = requests.post(
+        'https://wxapp.nhedu.net/edu-iot/be/ym-message//queryMessages',
+        
+        headers=headers,
+        json=json_data,
+    )
         deresponse=json.loads(response.content)
+        # logging.info(f"获取信息: {deresponse}")
         if deresponse['msg']!='success':
             raise CustomError('get messages failed')
         messages=json.loads(response.content)
         words=[]
-        for i in messages['result']['rows']:
+        for i in messages['result']["content"]:
             words.append(i['content'])
         if phoneNumber==None or phoneNumber=='':
-            phoneNumber=messages['result']['rows'][0]['parentPhone']
-        studentName=messages['result']['rows'][0]['studentName']
+            phoneNumber=messages['result']["content"][0]['parentPhone']
+        studentName=messages['result']["content"][0]['studentName']
         edu_api.phoneNumber = phoneNumber
 
         if words:
@@ -172,7 +183,7 @@ def get():
     except Exception as e:
         if response:
             logging.error(response.content)
-        if messages['result']['rows'] == None:
+        if messages['result']["content"] == None:
             return [" "]
         
         logging.error(f"get() 出现异常: {e}")
@@ -331,57 +342,38 @@ def deepseek_api(qes, models):
     logging.info(f"回答内容: {content_total}")
     return content_total
 
-def login():
+def login(code):
     global token
     headers = {
-    'Accept': '*/*',
-    'Accept-Language': 'zh-CN,zh;q=0.9,en-GB;q=0.8,en;q=0.7,en-US;q=0.6',
-    'Connection': 'keep-alive',
-    'If-Modified-Since': 'Sat, 20 Sep 2025 05:20:28 GMT',
-    'If-None-Match': '"68ce399c-371"',
-    'Referer': 'https://wxapp.nhedu.net/edu-base/mobile/',
-    'Sec-Fetch-Dest': 'empty',
-    'Sec-Fetch-Mode': 'cors',
-    'Sec-Fetch-Site': 'same-origin',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0',
-    'sec-ch-ua': '"Microsoft Edge";v="141", "Not?A_Brand";v="8", "Chromium";v="141"',
-    'sec-ch-ua-mobile': '?0',
-    'sec-ch-ua-platform': '"Windows"',
-}
-
-    response = session.get('https://wxapp.nhedu.net/edu-base/mobile/', headers=headers)
-    image=session.get("https://wxapp.nhedu.net/edu-base/be/captcha/captcha.jpg?uuid=2e022573-11a3-4f25-8999-cdfa36bff424")
-    ocr = dd.DdddOcr()
-    result = ocr.classification(image.content)
-    logging.info(f"验证码：{result}")
-    headers = {
     'Accept': 'application/json, text/plain, */*',
-    'Accept-Language': 'zh-CN,zh;q=0.9,en-GB;q=0.8,en;q=0.7,en-US;q=0.6',
+    'Accept-Language': 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7',
+    'Cache-Control': 'no-cache',
     'Connection': 'keep-alive',
     'Content-Type': 'application/json; charset=UTF-8',
     'Origin': 'https://wxapp.nhedu.net',
+    'Pragma': 'no-cache',
     'Referer': 'https://wxapp.nhedu.net/edu-base/mobile/',
     'Sec-Fetch-Dest': 'empty',
     'Sec-Fetch-Mode': 'cors',
     'Sec-Fetch-Site': 'same-origin',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36 Edg/141.0.0.0',
+    'User-Agent': 'Mozilla/5.0 (Linux; Android 16; 25102RKBEC Build/BP2A.250605.031.A3; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/142.0.7444.173 Mobile Safari/537.36 XWEB/1420283 MMWEBSDK/20260201 MMWEBID/8824 REV/ec8e1e22ce14c15777e32b125633f1cf59a36aa3 MicroMessenger/8.0.69.3040(0x2800455B) WeChat/arm64 Weixin NetType/WIFI Language/zh_CN ABI/arm64',
+    'X-Requested-With': 'com.tencent.mm',
     'edu-token': 'null',
-    'sec-ch-ua': '"Microsoft Edge";v="141", "Not?A_Brand";v="8", "Chromium";v="141"',
-    'sec-ch-ua-mobile': '?0',
-    'sec-ch-ua-platform': '"Windows"',
+    'sec-ch-ua': '"Chromium";v="142", "Android WebView";v="142", "Not_A Brand";v="99"',
+    'sec-ch-ua-mobile': '?1',
+    'sec-ch-ua-platform': '"Android"',
     'sso-user': 'true',
+    # 'Cookie': 'sl-session=IVVKS0kdymk5DqwwMSbEUQ==',
 }
 
     json_data = {
-        't': 1759378471057,
-        'loginType': 'sso_username',
-        'username': str(secret[0]),
-        'password': str(secret[1]),
-        'captcha': str(result),
-        'captchaUuid': '2e022573-11a3-4f25-8999-cdfa36bff424',
+        't': timestemp,
+        'code': code,
+        'appId': 'wxbfc968922bd0610d',
+        'loginType': 'wx_mp',
     }
 
-    response = session.post('https://wxapp.nhedu.net/edu-base/be/open/login',headers=headers, json=json_data)
+    response = requests.post('https://wxapp.nhedu.net/edu-base/be/open/login', headers=headers, json=json_data)
     deresponse=json.loads(response.content)
     token=deresponse["result"]["token"]
     edu_api.token = token
@@ -419,10 +411,11 @@ def get_phoneNumber(relation):
     return None
 
 # 登录操作
-login()
+login(code)
+if token:
+    logging.info(f"成功登录 token: {token}")
 phoneNumber=get_phoneNumber(relation)
 get()
-logging.info("成功登录")
 send_words("成功登录 请使用‘/ds’进行提问,使用‘/ds (内容)/reason’输出推理过程（仅在模型为r1时接受）使用‘/v3’切换至v3模型，使用‘/r1’切换至r1模型，使用“/new”开始新对话，使用‘/查询歌曲 歌名’查询歌曲列表，使用‘/点歌 歌名 第几首’点歌")
 send_words("使用‘/设置歌单id 歌单id’设置网易云歌单id，使用‘/获取歌单’获取歌单内容，使用‘/歌单第几首’点歌")
 time.sleep(2)

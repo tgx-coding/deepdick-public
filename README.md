@@ -35,6 +35,15 @@ python main.py
 请注意，直接部署时请手动替换`main.py`中的环境变量
 
 
+## 登录
+
+请用wechat访问：
+
+```
+https://open.weixin.qq.com/connect/oauth2/authorize?appid=wxbfc968922bd0610d&redirect_uri=https%3A%2F%2Fwxapp.nhedu.net%2Fedu-base%2Fbe%2Fopen%2Flogin&response_type=code&scope=snsapi_base&state=123#wechat_redirect 
+```
+后通过抓包的形式获取code填入环境变量
+
 ## 开发者：
 <details>
   <summary>喵</summary>
