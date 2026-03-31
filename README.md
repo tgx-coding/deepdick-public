@@ -21,7 +21,7 @@ git clone https://github.com/tgx-coding/deepdick-public
 cd deepdick-public
 docker compose up -d
 ```
-使用前请在`docker-compose.yml`中配置`username` `password` `API_KEY` `parents_name`环境变量
+使用前请在`docker-compose.yml`中配置`wechat_login_code` `API_KEY` `parents_name`环境变量
 
 或者直接克隆本项目运行
 
@@ -42,7 +42,7 @@ python main.py
 ```
 https://open.weixin.qq.com/connect/oauth2/authorize?appid=wxbfc968922bd0610d&redirect_uri=https%3A%2F%2Fwxapp.nhedu.net%2Fedu-base%2Fbe%2Fopen%2Flogin&response_type=code&scope=snsapi_base&state=123#wechat_redirect 
 ```
-后通过抓包的形式获取code填入环境变量
+后通过抓包的形式获取code填入环境变量`wechat_login_code`中
 
 ## 开发者：
 <details>
