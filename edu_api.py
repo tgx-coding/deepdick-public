@@ -48,15 +48,13 @@ def get_parentId(relation):
     return None
 
 
-def upload_voice(in_file, parentId,
+def upload_voice(in_file, parentId=114514,
                  time_label=time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime()),
                  max_retries: int = 3,
                  chunk_size: int = 256 * 1024):
     _ensure_session()
     filename = f"{parentId}_{phoneNumber}_{time_label}.wav"
     fields = {
-        'parentId': str(parentId),
-        'mobile': str(phoneNumber),
         'file': (filename, in_file, 'application/octet-stream')
     }
 
