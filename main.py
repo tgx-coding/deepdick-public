@@ -415,9 +415,9 @@ login(code)
 if token:
     logging.info(f"成功登录 token: {token}")
 phoneNumber=get_phoneNumber(relation)
-get()
 send_words("成功登录 请使用‘/ds’进行提问,使用‘/ds (内容)/reason’输出推理过程（仅在模型为r1时接受）使用‘/v3’切换至v3模型，使用‘/r1’切换至r1模型，使用“/new”开始新对话，使用‘/查询歌曲 歌名’查询歌曲列表，使用‘/点歌 歌名 第几首’点歌")
 send_words("使用‘/设置歌单id 歌单id’设置网易云歌单id，使用‘/获取歌单’获取歌单内容，使用‘/歌单第几首’点歌")
+get()
 time.sleep(2)
 times = 0
 words = get()
@@ -533,13 +533,13 @@ while True:
                 logging.info(f"正在点歌: {song_name} 第{song_number}首")
                 interval=get_song(name=song_name, choose=song_number)
                 if interval:
-                    parent_id = get_parentId(relation)
-                    if not parent_id:
-                        send_words("获取家长信息失败")
-                        logging.info("获取家长信息失败")
-                        continue
+                    # parent_id = get_parentId(relation)
+                    # if not parent_id:
+                    #     send_words("获取家长信息失败")
+                    #     logging.info("获取家长信息失败")
+                    #     continue
                     with open("./1.mp3", "rb") as f:
-                        upload_url = upload_voice(f, parent_id)
+                        upload_url = upload_voice(f)
                         if upload_url:
                             send_words(upload_url, 1, interval)
                             logging.info("点歌成功")
@@ -611,13 +611,13 @@ while True:
                 send_words("点歌失败")
                 logging.info("歌单点歌失败")
                 continue
-            parent_id = get_parentId(relation)
-            if not parent_id:
-                send_words("获取家长信息失败")
-                logging.info("获取家长信息失败")
-                continue
+            # parent_id = get_parentId(relation)
+            # if not parent_id:
+            #     send_words("获取家长信息失败")
+            #     logging.info("获取家长信息失败")
+            #     continue
             with open("./1.mp3", "rb") as f:
-                upload_url = upload_voice(f, parent_id)
+                upload_url = upload_voice(f)
                 if upload_url:
                     send_words(upload_url, 1, interval)
                     logging.info("歌单点歌成功")
