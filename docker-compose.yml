@@ -10,5 +10,6 @@ services:
       - ./logs:/usr/src/app/logs
     environment:
       - wechat_login_code=
+      - username=                      #For log dir name
       - API_KEY=
       - parents_name=

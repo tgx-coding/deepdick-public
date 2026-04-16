@@ -143,8 +143,8 @@ def get():
     't': timestemp,
     'pageNo': 1,
     'pageSize': 10,
-    'startTime': f'{year}-01-01T00:00:00+08:00',
-    'endTime': f'{year}-12-31T23:59:59+08:00',
+    "startTime": f"{year}-01-01 00:00:00",
+    "endTime": f"{year}-12-31 23:59:59",
     'pageType': 'first',
 }
         response = requests.post(
@@ -183,8 +183,11 @@ def get():
     except Exception as e:
         if response:
             logging.error(response.content)
-        if messages['result']["content"] == None:
-            return [" "]
+        try:
+            if messages['result']["content"] == None:
+                return [" "]
+        except Exception as e:
+            exit(-1)
         
         logging.error(f"get() 出现异常: {e}")
         return get()
