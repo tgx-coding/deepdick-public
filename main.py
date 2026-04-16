@@ -187,7 +187,7 @@ def get():
             if messages['result']["content"] == None:
                 return [" "]
         except Exception as e:
-            exit(-1)
+            raise CustomError("get messages failed,messages may be NOT EXIS")
         
         logging.error(f"get() 出现异常: {e}")
         return get()
