@@ -98,7 +98,7 @@ load_conversation_context()
 cleanup_old_logs(LOG_DIR)
 
 no_word = ["正在待机", "收到", "余额"]
-ds_model = "deepseek-reasoner"
+ds_model = "deepseek-v4-flash"
 # secret = [os.getenv("username"), os.getenv("password")]
 time_stemp = time.time()
 reason = False
@@ -297,6 +297,7 @@ def blance():
 def deepseek_api(qes, models):
     logging.info(f"调用 DeepSeek API: {qes}")
     client = OpenAI(api_key=os.getenv("API_KEY"), base_url="https://api.deepseek.com")
+    think_switch="enabled" if think_mode else "disabled"
     messages = [{
         "role": "system",
         "content": "如果这是个数学问题，请遵循以下规则：“我的环境无法渲染Latex和markdown,所以请以纯文本形式输出数学公式，且尽量避免换行。”其他情况请正常回答。"
@@ -306,7 +307,9 @@ def deepseek_api(qes, models):
         model=models,
         messages=messages,
         stream=True,
-        temperature=1.5
+        temperature=1.5,
+        **({"reasoning_effort": "high"} if think_mode else {}),
+        extra_body={"thinking": {"type": think_switch}}
     )
     reasoning_content = ""
     reasoning_content_total = ""
@@ -314,7 +317,7 @@ def deepseek_api(qes, models):
     content_total = ""
 
     for chunk in response:
-        if models == "deepseek-reasoner":
+        if think_mode:
             if chunk.choices[0].delta.reasoning_content and reason:
                 reasoning_content += chunk.choices[0].delta.reasoning_content
                 reasoning_content_total += chunk.choices[0].delta.reasoning_content
@@ -415,11 +418,11 @@ def get_phoneNumber(relation):
 
 # 登录操作
 login(code)
+
 if token:
     logging.info(f"成功登录 token: {token}")
 phoneNumber=get_phoneNumber(relation)
-send_words("成功登录 请使用‘/ds’进行提问,使用‘/ds (内容)/reason’输出推理过程（仅在模型为r1时接受）使用‘/v3’切换至v3模型，使用‘/r1’切换至r1模型，使用“/new”开始新对话，使用‘/查询歌曲 歌名’查询歌曲列表，使用‘/点歌 歌名 第几首’点歌")
-send_words("使用‘/设置歌单id 歌单id’设置网易云歌单id，使用‘/获取歌单’获取歌单内容，使用‘/歌单第几首’点歌")
+send_words("成功登录 发送/help 获取使用说明")
 get()
 time.sleep(2)
 times = 0
@@ -427,22 +430,35 @@ words = get()
 times = 0
 daiji = False
 latest_word = words[0]
+think_mode=True
 # 主循环：检测新信息并调用 API 返回回复
 while True:
     try:
         if time.time() - time_stemp >= 300:
             daiji = True
         words = get()
-        if words[0] == "/v3":
-            ds_model = "deepseek-chat"
-            send_words("//已切换至v3")
-            logging.info("已切换至v3")
+        if words[0] == "/flash":
+            ds_model = "deepseek-v4-flash"
+            send_words("//已切换至flash")
+            logging.info("已切换至flash")
             words = get()
             latest_word = words[0]
-        elif words[0] == "/r1":
-            ds_model = "deepseek-reasoner"
-            send_words("//已切换至r1")
-            logging.info("已切换至r1")
+        elif words[0] == "/pro":
+            ds_model = "deepseek-v4-pro"
+            send_words("//已切换至pro")
+            logging.info("已切换至pro")
+            words = get()
+            latest_word = words[0]
+        elif words[0] == "/切换思考模式":
+            think_mode = not think_mode
+            mode_status = "开启" if think_mode else "关闭"
+            send_words(f"思考模式已{mode_status}")
+            logging.info(f"思考模式已{mode_status}")
+            words = get()
+            latest_word = words[0]
+        elif words[0] == "/help":
+            send_words("使用‘/ds’进行提问,使用‘/ds (内容)/reason’输出推理过程（仅在打开思考模式时接受）使用‘/flash’切换至flash模型，使用‘/pro’切换至pro模型，使用“/new”开始新对话,使用‘/切换思考模式’切换思考模式")
+            send_words("使用‘/查询歌曲 歌名’查询歌曲列表，使用‘/点歌 歌名 第几首’点歌使用‘/设置歌单id 歌单id’设置网易云歌单id，使用‘/获取歌单’获取歌单内容，使用‘/歌单第几首’点歌")
             words = get()
             latest_word = words[0]
         elif words[0] == "stops":
