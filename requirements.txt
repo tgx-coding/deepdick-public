@@ -6,4 +6,4 @@ Pillow==11.1.0
 Requests==2.32.4
 pydub==0.25.1
 requests-toolbelt==1.0.0
-
+pycryptodome
