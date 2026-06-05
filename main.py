@@ -23,6 +23,8 @@ from context_utils import (
 from edu_api import get_parentId, upload_voice
 from music_service import get_song, get_voice_list
 from text_utils import markdown_to_text, parse_song_request, replace_non_bmp
+from crypto_aes import CryptoAll
+Crypto=CryptoAll()
 timestemp=time.time()
 timestemp*=1000
 edu_api.timestemp = timestemp
@@ -351,39 +353,28 @@ def deepseek_api(qes, models):
 def login(code):
     global token
     headers = {
-    'Accept': 'application/json, text/plain, */*',
-    'Accept-Language': 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7',
-    'Cache-Control': 'no-cache',
-    'Connection': 'keep-alive',
-    'Content-Type': 'application/json; charset=UTF-8',
-    'Origin': 'https://wxapp.nhedu.net',
-    'Pragma': 'no-cache',
-    'Referer': 'https://wxapp.nhedu.net/edu-base/mobile/',
-    'Sec-Fetch-Dest': 'empty',
-    'Sec-Fetch-Mode': 'cors',
-    'Sec-Fetch-Site': 'same-origin',
-    'User-Agent': 'Mozilla/5.0 (Linux; Android 16; 25102RKBEC Build/BP2A.250605.031.A3; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/142.0.7444.173 Mobile Safari/537.36 XWEB/1420283 MMWEBSDK/20260201 MMWEBID/8824 REV/ec8e1e22ce14c15777e32b125633f1cf59a36aa3 MicroMessenger/8.0.69.3040(0x2800455B) WeChat/arm64 Weixin NetType/WIFI Language/zh_CN ABI/arm64',
-    'X-Requested-With': 'com.tencent.mm',
-    'edu-token': 'null',
-    'sec-ch-ua': '"Chromium";v="142", "Android WebView";v="142", "Not_A Brand";v="99"',
-    'sec-ch-ua-mobile': '?1',
-    'sec-ch-ua-platform': '"Android"',
-    'sso-user': 'true',
-    # 'Cookie': 'sl-session=IVVKS0kdymk5DqwwMSbEUQ==',
+  'Content-Type': "application/json"
 }
 
     json_data = {
-        't': timestemp,
-        'code': code,
-        'appId': 'wxbfc968922bd0610d',
-        'loginType': 'wx_mp',
-    }
-
-    response = requests.post('https://wxapp.nhedu.net/edu-base/be/open/login', headers=headers, json=json_data)
-    deresponse=json.loads(response.content)
-    token=deresponse["result"]["token"]
+            't': int(time.time() * 1000),
+            'code': code,
+            'appId': 'wxbfc968922bd0610d',
+            'loginType': 'wx_mp',
+        }
+    en_data = Crypto.en_par(json.dumps(json_data))
+    json_data={"QT360": en_data}
+    response = requests.post(
+            'https://wxapp.nhedu.net/edu-base/be/c_api/Fk1YAp7AvuOUDo2R8_ENTk3QwSj0gvtI0JHoaSmeU-s',
+            headers=headers,
+            json=json_data
+        )
+    res_json=response.json()
+    res_data=res_json['QT360']
+    de_res_data=json.loads(Crypto.de_par(res_data))
+    token=de_res_data["result"]["token"]
     edu_api.token = token
-    if deresponse['msg']!='success':
+    if de_res_data['msg']!='success':
         raise CustomError("login failed")
         exit(-1)
 
