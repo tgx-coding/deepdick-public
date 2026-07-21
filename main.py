@@ -524,7 +524,7 @@ while True:
             logging.info(f"收到: {words[0]}")
             song_name=words[0].replace("/查询歌曲", "")
             song_name=song_name.replace(" ","")
-            song_list=get_voice_list(song_name)
+            song_list,song_ids=get_voice_list(song_name)
             number=1
 
             if song_list:
@@ -532,7 +532,6 @@ while True:
                 for i in song_list:
                     send_words(f"{number}.{i}")
                     number+=1
-            song_list=[]
         elif (words[0] != latest_word and
             re.search(re.escape("/点歌"), words[0])):
             send_words("收到请求")

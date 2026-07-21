@@ -10,6 +10,9 @@ services:
       - ./logs:/usr/src/app/logs
     environment:
       - wechat_login_code=
-      - username=                      #For log dir name
+    #For log dir name
+      - username=
+      - cloud_music_cookie=
+      - cloud_music_api=
       - API_KEY=
       - parents_name=
