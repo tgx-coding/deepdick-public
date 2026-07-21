@@ -6,6 +6,21 @@ import logging
 import json
 import requests
 import datetime
+
+# ===== 日志系统必须最先初始化，否则被导入模块中的 logging 调用会导致 basicConfig 失效 =====
+USERNAME = os.getenv("username") or "default_user"
+LOG_DIR = os.path.join("./logs", USERNAME)
+os.makedirs(LOG_DIR, exist_ok=True)
+script_start_time = time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime(time.time()))
+log_filename = os.path.join(LOG_DIR, f"{script_start_time}.log")
+logging.basicConfig(
+    filename=log_filename,
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
+logging.info("程序启动，日志系统初始化完成")
+
 import ddddocr as dd
 from openai import OpenAI
 code = os.getenv("wechat_login_code") #将登录code存储到变量中方便读取
@@ -32,12 +47,8 @@ token=""
 edu_api.token = token
 song_list=[]
 REQUEST_TIMEOUT = 180
-USERNAME = os.getenv("username") or "default_user"
-LOG_DIR = os.path.join("./logs", USERNAME)
 CONTEXT_FILE = os.path.join(LOG_DIR, "conversation_context.json")
 MAX_CONTEXT_MESSAGES = 20
-# Ensure per-user log directory exists early (used by context + song list id persistence)
-os.makedirs(LOG_DIR, exist_ok=True)
 
 # Persist song list id under the user's log directory.
 # Backward compatible: migrate legacy ./song_list_id.txt to LOG_DIR on first run.
@@ -83,19 +94,9 @@ class CustomError(Exception):
 os.environ['TZ'] = 'Asia/Shanghai'
 time.tzset()
 year = datetime.datetime.now().year
-# LOG_DIR is created above; keep this as a no-op safety in case of refactors.
-os.makedirs(LOG_DIR, exist_ok=True)  # 确保 logs 文件夹存在
 studentName=''
 phoneNumber=''
 relation=os.getenv("parents_name")
-script_start_time = time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime(time.time()))
-log_filename = os.path.join(LOG_DIR, f"{script_start_time}.log")
-logging.basicConfig(
-    filename=log_filename,
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S"
-)
 load_conversation_context()
 cleanup_old_logs(LOG_DIR)
 
@@ -409,7 +410,6 @@ def get_phoneNumber(relation):
 
 # 登录操作
 login(code)
-
 if token:
     logging.info(f"成功登录 token: {token}")
 phoneNumber=get_phoneNumber(relation)
