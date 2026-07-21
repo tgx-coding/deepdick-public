@@ -39,6 +39,7 @@ def get_voice_list(name, from_where=1, retry_times=0):
         singer=""
         song_id=[]
         for item in voice_list["result"]["songs"]:
+            singer=""
             song_id.append(item["id"])
             for singer_name in item["ar"]:
                 singer+=singer_name["name"]+", "

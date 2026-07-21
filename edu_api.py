@@ -1,6 +1,7 @@
 import json
 import logging
 import time
+import random
 
 from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
 
@@ -53,7 +54,7 @@ def upload_voice(in_file, parentId=114514,
                  max_retries: int = 3,
                  chunk_size: int = 256 * 1024):
     _ensure_session()
-    filename = f"{parentId}_{phoneNumber}_{time_label}.wav"
+    filename = f"{random.randint(1000, 9999)}_{parentId}_{phoneNumber}_{time_label}.wav"
     fields = {
         'file': (filename, in_file, 'application/octet-stream')
     }
