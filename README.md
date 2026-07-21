@@ -34,6 +34,8 @@ python main.py
 
 请注意，直接部署时请手动替换`main.py`中的环境变量
 
+由于项目涉及网易云点歌部分，故须先部署项目：[NeteaseCloudMusicApiEnhanced](https://github.com/NeteaseCloudMusicApiEnhanced/api-enhanced)，并将api地址填入环境变量：`cloud_music_api`中，如需收听vip歌曲，则需填入`cloud_music_cookie`参数（e.g: cloud_music_cookie=MUSIC_U=xxx），此参数为网易云登录cookie `MUSIC_U`，请自行登录网易云音乐网页版获取cookie，
+
 
 ## 登录
 
