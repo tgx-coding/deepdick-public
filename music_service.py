@@ -31,7 +31,7 @@ def get_voice_list(name, from_where=1, retry_times=0):
             raise RuntimeError("get voice list failed")
         response = session.get(f"{cloud_music_api}/cloudsearch?keywords={name}")
         voice_list = json.loads(response.content)
-        if voice_list["result"]["code"] != 200:
+        if voice_list["code"] != 200:
             retry_times += 1
             logging.info(f"获取歌曲列表重试次数：{retry_times}")
             return get_voice_list(name, from_where, retry_times)
