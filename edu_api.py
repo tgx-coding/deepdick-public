@@ -104,6 +104,7 @@ def upload_voice(in_file, parentId=114514,
             data=monitor,
             timeout=180,
         )
+        logging.info(response.content)
         deresponse = json.loads(response.content)
         if deresponse.get('msg') != 'success':
             raise RuntimeError('UPLOAD failed')
