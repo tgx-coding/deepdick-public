@@ -547,15 +547,28 @@ while True:
                     #     send_words("获取家长信息失败")
                     #     logging.info("获取家长信息失败")
                     #     continue
-                    with open("./1.mp3", "rb") as f:
-                        upload_url = upload_voice(f)
-                        if upload_url:
-                            send_words(upload_url, 1, interval)
-                            logging.info("点歌成功")
-                            send_words("点歌成功")
-                        else:
-                            send_words("点歌失败")
-                            logging.info("点歌失败")
+                    try:
+                        music_service.mp3_to_wav("./1.mp3", "./1.wav")
+                    except Exception as exc:
+                        logging.error(f"音频转换失败(请检查容器是否安装ffmpeg): {exc}")
+                        send_words("点歌失败")
+                        logging.info("点歌失败")
+                        continue
+                    try:
+                        with open("./1.wav", "rb") as f:
+                            upload_url = upload_voice(f)
+                    finally:
+                        try:
+                            os.remove("./1.wav")
+                        except OSError:
+                            pass
+                    if upload_url:
+                        send_words(upload_url, 1, interval)
+                        logging.info("点歌成功")
+                        send_words("点歌成功")
+                    else:
+                        send_words("点歌失败")
+                        logging.info("点歌失败")
                 else:
                     send_words("点歌失败")
                     logging.info("点歌失败")
@@ -625,15 +638,28 @@ while True:
             #     send_words("获取家长信息失败")
             #     logging.info("获取家长信息失败")
             #     continue
-            with open("./1.mp3", "rb") as f:
-                upload_url = upload_voice(f)
-                if upload_url:
-                    send_words(upload_url, 1, interval)
-                    logging.info("歌单点歌成功")
-                    send_words("点歌成功")
-                else:
-                    send_words("点歌失败")
-                    logging.info("歌单点歌失败")
+            try:
+                music_service.mp3_to_wav("./1.mp3", "./1.wav")
+            except Exception as exc:
+                logging.error(f"音频转换失败(请检查容器是否安装ffmpeg): {exc}")
+                send_words("点歌失败")
+                logging.info("歌单点歌失败")
+                continue
+            try:
+                with open("./1.wav", "rb") as f:
+                    upload_url = upload_voice(f)
+            finally:
+                try:
+                    os.remove("./1.wav")
+                except OSError:
+                    pass
+            if upload_url:
+                send_words(upload_url, 1, interval)
+                logging.info("歌单点歌成功")
+                send_words("点歌成功")
+            else:
+                send_words("点歌失败")
+                logging.info("歌单点歌失败")
             
             
         time.sleep(1)

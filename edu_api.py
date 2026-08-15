@@ -41,7 +41,11 @@ def get_parentId(relation):
     }
 
     response = session.get('https://wxapp.nhedu.net/edu-iot/be/ym-message//parents', params=params, headers=headers)
-    result = json.loads(response.content)
+    try:
+        result = json.loads(response.content)
+    except ValueError:
+        logging.error(f"parents 接口返回非 JSON(HTTP {response.status_code}),无法获取家长id")
+        return None
     for item in result.get("result", []):
         if item.get("relation") == relation:
             logging.info(f"获取家长id：{item['parentId']}")
@@ -51,10 +55,16 @@ def get_parentId(relation):
 
 def upload_voice(in_file, parentId=114514,
                  time_label=time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime()),
-                 max_retries: int = 3,
-                 chunk_size: int = 256 * 1024):
+                 max_retries: int = 3):
+    """上传语音文件,失败自动重试。
+
+    服务端上传接口实测:请求体约 163.7KB 以内稳定成功,>=400KB 必然 500
+    (nginx 错误页,响应体为 HTML),160~400KB 区间则间歇性失败。
+    因此请务必传入体积受限的文件(见 music_service.mp3_to_wav),本函数
+    对 500 / 非 JSON 响应 / msg!=success 等情况做有限次重试兜底。
+    """
     _ensure_session()
-    filename = f"{random.randint(1000, 9999)}_{parentId}_{phoneNumber}_{time_label}.wav"
+    filename = f"{random.randint(1000, 9999)}_{parentId}_{phoneNumber or ''}_{time_label}.wav"
     fields = {
         'file': (filename, in_file, 'application/octet-stream')
     }
@@ -80,41 +90,73 @@ def upload_voice(in_file, parentId=114514,
     }
 
     encoder = MultipartEncoder(fields=fields)
-    progress_state = {'last_percent': -1}
+    headers['Content-Type'] = encoder.content_type
 
-    def make_callback(total_length):
-        def _callback(monitor):
-            if not total_length:
-                return
-            percent = int(monitor.bytes_read * 100 / total_length)
-            if percent > progress_state['last_percent']:
-                progress_state['last_percent'] = percent
-                logging.info(f"上传进度：{percent}% ({monitor.bytes_read}/{total_length} bytes)")
-        return _callback
+    for attempt in range(1, max_retries + 1):
+        if hasattr(in_file, "seek"):
+            in_file.seek(0)
+        progress_state = {'last_percent': -1}
 
-    monitor = MultipartEncoderMonitor(encoder, make_callback(encoder.len))
-    headers['Content-Type'] = monitor.content_type
+        def make_callback(total_length):
+            def _callback(monitor):
+                if not total_length:
+                    return
+                percent = int(monitor.bytes_read * 100 / total_length)
+                if percent > progress_state['last_percent']:
+                    progress_state['last_percent'] = percent
+                    logging.info(f"上传进度：{percent}% ({monitor.bytes_read}/{total_length} bytes)")
+            return _callback
 
-    logging.info("正在上传")
-    deresponse = None
-    try:
-        response = session.post(
-            'https://wxapp.nhedu.net/edu-iot/be/ym-message//upload-voice',
-            headers=headers,
-            data=monitor,
-            timeout=180,
-        )
-        logging.info(response.content)
-        deresponse = json.loads(response.content)
+        monitor = MultipartEncoderMonitor(encoder, make_callback(encoder.len))
+        logging.info(f"正在上传(第 {attempt}/{max_retries} 次)")
+
+        try:
+            response = session.post(
+                'https://wxapp.nhedu.net/edu-iot/be/ym-message//upload-voice',
+                headers=headers,
+                data=monitor,
+                timeout=180,
+            )
+        except Exception as exc:  # pragma: no cover - network heavy
+            logging.error(f"上传请求异常(第 {attempt}/{max_retries} 次): {exc}")
+            if attempt < max_retries:
+                time.sleep(2 * attempt)
+                continue
+            break
+
+        if response.status_code != 200:
+            # 500 时响应体是 nginx 错误页(HTML),只需记录前 120 字节
+            logging.error(
+                f"上传失败(第 {attempt}/{max_retries} 次): HTTP {response.status_code}, "
+                f"响应: {response.content[:120]!r}"
+            )
+            if attempt < max_retries:
+                time.sleep(2 * attempt)
+                continue
+            break
+
+        try:
+            deresponse = json.loads(response.content)
+        except ValueError:
+            logging.error(
+                f"上传响应非 JSON(第 {attempt}/{max_retries} 次): {response.content[:120]!r}"
+            )
+            if attempt < max_retries:
+                time.sleep(2 * attempt)
+                continue
+            break
+
         if deresponse.get('msg') != 'success':
-            raise RuntimeError('UPLOAD failed')
+            logging.error(f"上传返回失败(第 {attempt}/{max_retries} 次): {deresponse}")
+            if attempt < max_retries:
+                time.sleep(2 * attempt)
+                continue
+            break
+
         upload_file_url = deresponse.get("result")
-        logging.info("成功")
+        logging.info(f"上传成功: {upload_file_url}")
         return upload_file_url
-    except Exception as exc:  # pragma: no cover - network heavy
-        logging.error(f"上传失败: {exc}")
-        if deresponse is not None:
-            logging.error(deresponse)
-        if send_words:
-            send_words("请重试")
-        return None
+
+    if send_words:
+        send_words("请重试")
+    return None

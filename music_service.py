@@ -104,9 +104,116 @@ def get_song(name=None,id=None, choose=1, quality="exhigh", retry_times=0, outpu
         return None
 
 
+# ===== 上传音频体积控制 =====
+# 服务端上传接口实测:请求体约 163.7KB 以内稳定成功,>=400KB 必然 500。
+# 这里默认限制在 150KB,留出安全余量。
+VOICE_MAX_BYTES = int(os.getenv("VOICE_MAX_BYTES", str(150 * 1024)))
+VOICE_MIN_BITRATE = 8000      # LAME 支持的最低码率(bps)
+VOICE_MAX_BITRATE = 64000     # 16kHz 采样下 MP3 可用的较高码率
+VOICE_ID3_HEADROOM = 4096     # 为 MP3 容器头/ID3 标签预留的字节
+
+
+def _truncate_mp3_raw(file_path: str, out_path: str, max_bytes: int) -> int:
+    """无 ffmpeg 时的兜底方案:直接截取 MP3 前 max_bytes 字节。
+
+    字节截断无法压缩整首歌,只能保留开头片段。
+    服务端只对体积敏感,并不校验真实音频格式,截取的 MP3 片段也能上传成功。
+    """
+    file_size = os.path.getsize(file_path)
+    keep = min(file_size, max_bytes)
+    with open(file_path, "rb") as src, open(out_path, "wb") as dst:
+        dst.write(src.read(keep))
+    logging.warning(
+        f"未检测到 ffmpeg,已退回字节截断:原文件 {file_size}B -> 截取 {keep}B"
+        f"(无法压缩整首歌,请安装 ffmpeg 后重试)"
+    )
+    return keep
+
+
+def compress_song_to_limit(file_path: str, out_path: str, max_bytes=None) -> int:
+    """把整首歌压缩到 max_bytes 以内,返回最终文件字节数。
+
+    策略(整首歌完整保留,只降质量):
+      1. 解码 MP3 -> 单声道;
+      2. 按"体积预算 / 时长"估算码率,从 64kbps 起逐级下调
+         (采样率同步降到 16kHz / 8kHz),每次编码后实测文件大小;
+      3. 已到 LAME 最低码率 8kbps 仍超限时(歌曲时长 > 约 2.5 分钟),
+         只能按比例裁掉结尾,保证文件达标;
+      4. 无 ffmpeg 时退化为字节截断兜底(见 _truncate_mp3_raw)。
+
+    注意:输出文件实际是低码率 MP3 内容(扩展名保持兼容,服务端不校验格式)。
+    """
+    max_bytes = max_bytes or VOICE_MAX_BYTES
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"音频文件不存在: {file_path}")
+
+    # ---- 解码(需要 ffmpeg / ffprobe) ----
+    try:
+        song = AudioSegment.from_mp3(file_path)
+    except FileNotFoundError as exc:
+        # pydub 找不到 ffprobe/ffmpeg 时抛出 FileNotFoundError
+        if "ffprobe" in str(exc) or "ffmpeg" in str(exc):
+            return _truncate_mp3_raw(file_path, out_path, max_bytes)
+        raise
+    except Exception as exc:
+        # MP3 损坏等其他解码异常也走字节截断兜底,保证功能可用
+        logging.warning(f"MP3 解码失败({exc}),退回字节截断")
+        return _truncate_mp3_raw(file_path, out_path, max_bytes)
+
+    song = song.set_channels(1)
+    duration_ms = len(song)
+    duration_s = duration_ms / 1000.0
+
+    # ---- 估算起始码率 ----
+    budget = max_bytes - VOICE_ID3_HEADROOM
+    bitrate = int(budget * 8 / duration_s)
+    bitrate = max(VOICE_MIN_BITRATE, min(bitrate, VOICE_MAX_BITRATE))
+    bitrate = max(VOICE_MIN_BITRATE, bitrate // 8000 * 8000)  # 对齐 LAME 支持的档位
+
+    trim_ms = 0
+    last_size = None
+    for _ in range(24):
+        piece = song if not trim_ms else song[:duration_ms - trim_ms]
+        # 低码率配低采样率:16kbps 以下用 8kHz,否则 16kHz
+        sample_rate = 8000 if bitrate <= 16000 else 16000
+        piece = piece.set_frame_rate(sample_rate)
+        piece.export(out_path, format="mp3", bitrate=f"{bitrate // 1000}k")
+        last_size = os.path.getsize(out_path)
+
+        if last_size <= max_bytes:
+            cut_note = f",裁掉结尾 {trim_ms / 1000:.1f}s" if trim_ms else ""
+            logging.info(
+                f"整首歌压缩完成: {duration_s:.0f}s 歌曲 -> {last_size}B "
+                f"@{bitrate // 1000}kbps {sample_rate}Hz{cut_note}"
+            )
+            return last_size
+
+        if bitrate > VOICE_MIN_BITRATE:
+            # 仍超限:下调码率(约 15% 一档)重试
+            bitrate = max(VOICE_MIN_BITRATE, int(bitrate * 0.85) // 8000 * 8000)
+            logging.info(f"压缩后 {last_size}B 仍超 {max_bytes}B,码率降至 {bitrate // 1000}kbps")
+            continue
+
+        # 最低码率仍超限:按超出比例裁掉结尾
+        cut_ratio = min(0.5, (last_size - max_bytes) / max_bytes + 0.03)
+        new_trim = trim_ms + int(duration_ms * cut_ratio)
+        if new_trim >= duration_ms - 500:
+            raise RuntimeError(f"压缩失败: 最低码率下仍无法压到 {max_bytes}B")
+        trim_ms = new_trim
+        logging.warning(
+            f"最低码率仍超限({last_size}B > {max_bytes}B),"
+            f"裁掉结尾 {trim_ms / 1000:.1f}s 重试"
+        )
+
+    raise RuntimeError(f"压缩失败: 迭代次数超限(最后大小 {last_size}B)")
+
+
 def mp3_to_wav(file_path="./1.mp3", wav_path="1.wav"):
-    song = AudioSegment.from_mp3(file_path)
-    song.export(wav_path, format="wav")
+    """兼容旧调用入口:整首歌压缩到体积上限,输出仍写在 wav_path。
+
+    输出文件实际为低码率 MP3 内容,扩展名仅保持兼容(服务端不校验格式)。
+    """
+    return compress_song_to_limit(file_path, wav_path)
 
 def get_personal_song_list(id):
     try:
