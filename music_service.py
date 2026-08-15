@@ -51,7 +51,7 @@ def get_voice_list(name, from_where=1, retry_times=0):
         logging.error(f"出现异常: {exc}")
         return [], []
 
-def get_song(name=None,id=None, choose=1, quality="exhigh", retry_times=0, output_path="./1.mp3",song_id_list=[]) -> Optional[int]:
+def get_song(name=None,id=None, choose=1, quality="standard", retry_times=0, output_path="./1.mp3",song_id_list=[]) -> Optional[int]:
     _ensure_session()
     try:
         try:
@@ -110,7 +110,12 @@ def get_song(name=None,id=None, choose=1, quality="exhigh", retry_times=0, outpu
 VOICE_MAX_BYTES = int(os.getenv("VOICE_MAX_BYTES", str(150 * 1024)))
 VOICE_MIN_BITRATE = 8000      # LAME 支持的最低码率(bps)
 VOICE_MAX_BITRATE = 64000     # 16kHz 采样下 MP3 可用的较高码率
-VOICE_ID3_HEADROOM = 4096     # 为 MP3 容器头/ID3 标签预留的字节
+VOICE_ID3_HEADROOM = 4096     # 为容器头/ID3 标签预留的字节
+OPUS_MIN_BITRATE = 6000       # Opus 单声道官方最低码率(bps)
+
+# MP3 码率阶梯(高到低,低码率档位越细,越能保住整首)
+_MP3_RATE_LADDER = (64000, 48000, 40000, 32000, 24000, 20000,
+                    16000, 12000, 8000)
 
 
 def _truncate_mp3_raw(file_path: str, out_path: str, max_bytes: int) -> int:
@@ -130,18 +135,29 @@ def _truncate_mp3_raw(file_path: str, out_path: str, max_bytes: int) -> int:
     return keep
 
 
+def _export(song: AudioSegment, out_path: str, fmt: str,
+            sample_rate: int, bitrate: int) -> int:
+    """按给定参数编码并返回文件大小。"""
+    piece = song.set_frame_rate(sample_rate)
+    if fmt == "mp3":
+        piece.export(out_path, format="mp3", bitrate=f"{bitrate // 1000}k")
+    else:  # opus
+        piece.export(out_path, format="opus", parameters=["-b:a", str(bitrate)])
+    return os.path.getsize(out_path)
+
+
 def compress_song_to_limit(file_path: str, out_path: str, max_bytes=None) -> int:
     """把整首歌压缩到 max_bytes 以内,返回最终文件字节数。
 
-    策略(整首歌完整保留,只降质量):
+    策略(优先完整保留整首,只降质量,最后手段才裁尾):
       1. 解码 MP3 -> 单声道;
-      2. 按"体积预算 / 时长"估算码率,从 64kbps 起逐级下调
-         (采样率同步降到 16kHz / 8kHz),每次编码后实测文件大小;
-      3. 已到 LAME 最低码率 8kbps 仍超限时(歌曲时长 > 约 2.5 分钟),
-         只能按比例裁掉结尾,保证文件达标;
-      4. 无 ffmpeg 时退化为字节截断兜底(见 _truncate_mp3_raw)。
+      2. 按"体积预算 / 时长"估算所需码率,从 MP3 阶梯中选取起始档位,
+         逐级下调(采样率同步 16kHz/8kHz),能放下即整首无损时长;
+      3. MP3 最低 8kbps 仍放不下时,改用 Opus 6kbps(整首可覆盖约 3.3 分钟);
+      4. Opus 6kbps 也放不下时,才裁掉结尾到刚好放下的长度;
+      5. 无 ffmpeg 时退化为字节截断兜底(见 _truncate_mp3_raw)。
 
-    注意:输出文件实际是低码率 MP3 内容(扩展名保持兼容,服务端不校验格式)。
+    注意:输出文件实际是低码率 MP3/Opus 内容(扩展名保持兼容,服务端不校验格式)。
     """
     max_bytes = max_bytes or VOICE_MAX_BYTES
     if not os.path.exists(file_path):
@@ -163,49 +179,60 @@ def compress_song_to_limit(file_path: str, out_path: str, max_bytes=None) -> int
     song = song.set_channels(1)
     duration_ms = len(song)
     duration_s = duration_ms / 1000.0
-
-    # ---- 估算起始码率 ----
     budget = max_bytes - VOICE_ID3_HEADROOM
-    bitrate = int(budget * 8 / duration_s)
-    bitrate = max(VOICE_MIN_BITRATE, min(bitrate, VOICE_MAX_BITRATE))
-    bitrate = max(VOICE_MIN_BITRATE, bitrate // 8000 * 8000)  # 对齐 LAME 支持的档位
+    # 放得下整首所需的最低码率(bps)
+    req_rate = budget * 8 / duration_s
 
-    trim_ms = 0
-    last_size = None
-    for _ in range(24):
-        piece = song if not trim_ms else song[:duration_ms - trim_ms]
-        # 低码率配低采样率:16kbps 以下用 8kHz,否则 16kHz
-        sample_rate = 8000 if bitrate <= 16000 else 16000
-        piece = piece.set_frame_rate(sample_rate)
-        piece.export(out_path, format="mp3", bitrate=f"{bitrate // 1000}k")
-        last_size = os.path.getsize(out_path)
-
-        if last_size <= max_bytes:
-            cut_note = f",裁掉结尾 {trim_ms / 1000:.1f}s" if trim_ms else ""
+    # ---- 1) MP3 阶梯:码率逐级下调,全程不裁时长 ----
+    if req_rate >= VOICE_MIN_BITRATE:
+        # 阶梯中第一个不超过所需码率的档位(避免从过高码率白白多试)
+        start = next(i for i, r in enumerate(_MP3_RATE_LADDER) if r <= req_rate)
+        last_size = None
+        for bitrate in _MP3_RATE_LADDER[start:]:
+            sample_rate = 16000 if bitrate >= 20000 else 8000
+            last_size = _export(song, out_path, "mp3", sample_rate, bitrate)
+            if last_size <= max_bytes:
+                logging.info(
+                    f"整首歌压缩完成: {duration_s:.0f}s 歌曲 -> {last_size}B "
+                    f"@{bitrate // 1000}kbps {sample_rate}Hz(未截断)"
+                )
+                return last_size
             logging.info(
-                f"整首歌压缩完成: {duration_s:.0f}s 歌曲 -> {last_size}B "
-                f"@{bitrate // 1000}kbps {sample_rate}Hz{cut_note}"
+                f"MP3 {bitrate // 1000}kbps 得 {last_size}B 仍超 {max_bytes}B,继续降码率"
+            )
+        logging.warning(f"MP3 8kbps 仍超限({last_size}B),改用 Opus 极限码率")
+
+    # ---- 2) Opus 6kbps 整首(物理极限:约 3.3 分钟) ----
+    last_size = _export(song, out_path, "opus", 8000, OPUS_MIN_BITRATE)
+    if last_size <= max_bytes:
+        logging.info(
+            f"整首歌 Opus 压缩完成: {duration_s:.0f}s 歌曲 -> {last_size}B "
+            f"@{OPUS_MIN_BITRATE // 1000}kbps 8000Hz(未截断)"
+        )
+        return last_size
+    logging.warning(
+        f"Opus 6kbps 得 {last_size}B 仍超 {max_bytes}B,开始裁掉结尾"
+    )
+
+    # ---- 3) 最后手段:裁尾(只裁到刚好放下) ----
+    # budget*8/bitrate = 可容纳秒数,×0.96 对冲容器开销,×1000 转毫秒
+    keep_ms = int(budget * 8 / OPUS_MIN_BITRATE * 0.96 * 1000)
+    for _ in range(8):
+        piece = song[:keep_ms]
+        last_size = _export(piece, out_path, "opus", 8000, OPUS_MIN_BITRATE)
+        if last_size <= max_bytes:
+            logging.warning(
+                f"歌曲过长({duration_s:.0f}s),保留前 {keep_ms / 1000:.0f}s "
+                f"(Opus {OPUS_MIN_BITRATE // 1000}kbps,裁掉 "
+                f"{(duration_ms - keep_ms) / 1000:.0f}s)"
             )
             return last_size
+        # 按实际超出比例收缩,收敛快且不多裁
+        keep_ms = int(keep_ms * (max_bytes - VOICE_ID3_HEADROOM) / last_size * 0.98)
+        if keep_ms < 1000:
+            break
 
-        if bitrate > VOICE_MIN_BITRATE:
-            # 仍超限:下调码率(约 15% 一档)重试
-            bitrate = max(VOICE_MIN_BITRATE, int(bitrate * 0.85) // 8000 * 8000)
-            logging.info(f"压缩后 {last_size}B 仍超 {max_bytes}B,码率降至 {bitrate // 1000}kbps")
-            continue
-
-        # 最低码率仍超限:按超出比例裁掉结尾
-        cut_ratio = min(0.5, (last_size - max_bytes) / max_bytes + 0.03)
-        new_trim = trim_ms + int(duration_ms * cut_ratio)
-        if new_trim >= duration_ms - 500:
-            raise RuntimeError(f"压缩失败: 最低码率下仍无法压到 {max_bytes}B")
-        trim_ms = new_trim
-        logging.warning(
-            f"最低码率仍超限({last_size}B > {max_bytes}B),"
-            f"裁掉结尾 {trim_ms / 1000:.1f}s 重试"
-        )
-
-    raise RuntimeError(f"压缩失败: 迭代次数超限(最后大小 {last_size}B)")
+    raise RuntimeError(f"压缩失败: 最低码率下仍无法压到 {max_bytes}B")
 
 
 def mp3_to_wav(file_path="./1.mp3", wav_path="1.wav"):
