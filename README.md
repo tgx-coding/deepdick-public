@@ -6,7 +6,7 @@
 ## 项目介绍：
 
 - 本项目旨在实现在智慧校园班牌与deepseek聊天功能
-- 项目部分开源，基于python开发
+- 项目完全开源，基于python开发
 
 ## 项目示例：
 
@@ -45,6 +45,8 @@ python main.py
 https://open.weixin.qq.com/connect/oauth2/authorize?appid=wxbfc968922bd0610d&redirect_uri=https%3A%2F%2Fwxapp.nhedu.net%2Fedu-base%2Fbe%2Fopen%2Flogin&response_type=code&scope=snsapi_base&state=123#wechat_redirect 
 ```
 后通过抓包的形式获取code填入环境变量`wechat_login_code`中
+
+# 注意：本项目仅为学习交流该网站消息发送、登录逻辑使用，请勿向网站发送过量请求，请勿将该项目用于盈利，请在24小时内删除源代码以及构建产物，开发团队不对任何非法行为负责
 
 ## 开发者：
 <details>
