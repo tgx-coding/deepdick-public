@@ -288,6 +288,49 @@ def send_words(context,type=0,interval=0):
 music_service.send_words = send_words
 edu_api.send_words = send_words
 
+def upload_song_with_fallback():
+    """优先上传完整原曲,失败(HTTP 500 / 200 空或非 JSON 响应等)再回退压缩上传。
+
+    流程:
+      1. 直接把下载好的 ./1.mp3 原样上传,保留最佳音质;
+         只试 1 次,失败立即回退,避免大文件重复上传拖慢响应;
+      2. 原曲失败后,压缩到接口稳妥体积再上传(见 music_service.mp3_to_wav)。
+
+    返回音频 url;两条路径都失败时返回 None。
+    """
+    # ---- 1) 优先尝试完整原曲(探测式:不发"请重试",失败静默回退) ----
+    try:
+        size = os.path.getsize("./1.mp3")
+    except OSError:
+        size = 0
+    if size:
+        try:
+            with open("./1.mp3", "rb") as f:
+                url, reason = edu_api.upload_voice_probe(f, max_retries=1)
+            if url:
+                logging.info(f"完整原曲上传成功({size}B): {url}")
+                return url
+            logging.warning(f"完整原曲上传失败({size}B,原因={reason}),回退到压缩上传")
+        except Exception as exc:
+            logging.error(f"完整原曲上传异常({size}B): {exc},回退到压缩上传")
+
+    # ---- 2) 回退:压缩后上传 ----
+    try:
+        out_size = music_service.mp3_to_wav("./1.mp3", "./1.wav")
+        logging.info(f"音频压缩完成,准备上传({out_size}B)")
+    except Exception as exc:
+        logging.error(f"音频压缩失败(请检查容器是否安装ffmpeg): {exc}")
+        return None
+
+    try:
+        with open("./1.wav", "rb") as f:
+            return upload_voice(f)
+    finally:
+        try:
+            os.remove("./1.wav")
+        except OSError:
+            pass
+
 def blance():
     url = "https://api.deepseek.com/user/balance"
     headers = {
@@ -547,21 +590,7 @@ while True:
                     #     send_words("获取家长信息失败")
                     #     logging.info("获取家长信息失败")
                     #     continue
-                    try:
-                        music_service.mp3_to_wav("./1.mp3", "./1.wav")
-                    except Exception as exc:
-                        logging.error(f"音频转换失败(请检查容器是否安装ffmpeg): {exc}")
-                        send_words("点歌失败")
-                        logging.info("点歌失败")
-                        continue
-                    try:
-                        with open("./1.wav", "rb") as f:
-                            upload_url = upload_voice(f)
-                    finally:
-                        try:
-                            os.remove("./1.wav")
-                        except OSError:
-                            pass
+                    upload_url = upload_song_with_fallback()
                     if upload_url:
                         send_words(upload_url, 1, interval)
                         logging.info("点歌成功")
@@ -638,21 +667,7 @@ while True:
             #     send_words("获取家长信息失败")
             #     logging.info("获取家长信息失败")
             #     continue
-            try:
-                music_service.mp3_to_wav("./1.mp3", "./1.wav")
-            except Exception as exc:
-                logging.error(f"音频转换失败(请检查容器是否安装ffmpeg): {exc}")
-                send_words("点歌失败")
-                logging.info("歌单点歌失败")
-                continue
-            try:
-                with open("./1.wav", "rb") as f:
-                    upload_url = upload_voice(f)
-            finally:
-                try:
-                    os.remove("./1.wav")
-                except OSError:
-                    pass
+            upload_url = upload_song_with_fallback()
             if upload_url:
                 send_words(upload_url, 1, interval)
                 logging.info("歌单点歌成功")

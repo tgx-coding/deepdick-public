@@ -105,8 +105,8 @@ def get_song(name=None,id=None, choose=1, quality="standard", retry_times=0, out
 
 
 # ===== 上传音频体积控制 =====
-# 服务端上传接口实测:请求体约 163.7KB 以内稳定成功,>=400KB 必然 500。
-# 这里默认限制在 150KB,留出安全余量。
+# 服务端体积上限会变化:2026-08 实测 >163.7KB 必然 500,2026-09 复测 3.4MB 已可上传。
+# 本模块作为"完整原曲直接上传失败"时的回退方案,默认压到 150KB 以确保稳妥。
 VOICE_MAX_BYTES = int(os.getenv("VOICE_MAX_BYTES", str(150 * 1024)))
 VOICE_MIN_BITRATE = 8000      # LAME 支持的最低码率(bps)
 VOICE_MAX_BITRATE = 64000     # 16kHz 采样下 MP3 可用的较高码率

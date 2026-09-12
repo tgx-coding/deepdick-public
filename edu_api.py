@@ -53,15 +53,16 @@ def get_parentId(relation):
     return None
 
 
-def upload_voice(in_file, parentId=114514,
-                 time_label=time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime()),
-                 max_retries: int = 3):
-    """上传语音文件,失败自动重试。
+def _do_upload(in_file, parentId, time_label, max_retries):
+    """执行上传,返回 (url, reason);reason 为 None 表示成功。
 
-    服务端上传接口实测:请求体约 163.7KB 以内稳定成功,>=400KB 必然 500
-    (nginx 错误页,响应体为 HTML),160~400KB 区间则间歇性失败。
-    因此请务必传入体积受限的文件(见 music_service.mp3_to_wav),本函数
-    对 500 / 非 JSON 响应 / msg!=success 等情况做有限次重试兜底。
+    失败原因标识:
+      'network'     请求异常(超时/连接错误)
+      'http_XXX'    HTTP 状态码非 200(如 500 的 nginx 错误页)
+      'empty_body'  HTTP 200 但响应体为空
+      'non_json'    HTTP 200 但响应体不是 JSON
+      'api_error'   接口返回 msg != success
+      'no_url'      返回成功但缺少 result 字段
     """
     _ensure_session()
     filename = f"{random.randint(1000, 9999)}_{parentId}_{phoneNumber or ''}_{time_label}.wav"
@@ -92,6 +93,7 @@ def upload_voice(in_file, parentId=114514,
     encoder = MultipartEncoder(fields=fields)
     headers['Content-Type'] = encoder.content_type
 
+    reason = 'unknown'
     for attempt in range(1, max_retries + 1):
         if hasattr(in_file, "seek"):
             in_file.seek(0)
@@ -118,6 +120,7 @@ def upload_voice(in_file, parentId=114514,
                 timeout=180,
             )
         except Exception as exc:  # pragma: no cover - network heavy
+            reason = 'network'
             logging.error(f"上传请求异常(第 {attempt}/{max_retries} 次): {exc}")
             if attempt < max_retries:
                 time.sleep(2 * attempt)
@@ -126,6 +129,7 @@ def upload_voice(in_file, parentId=114514,
 
         if response.status_code != 200:
             # 500 时响应体是 nginx 错误页(HTML),只需记录前 120 字节
+            reason = f'http_{response.status_code}'
             logging.error(
                 f"上传失败(第 {attempt}/{max_retries} 次): HTTP {response.status_code}, "
                 f"响应: {response.content[:120]!r}"
@@ -135,9 +139,19 @@ def upload_voice(in_file, parentId=114514,
                 continue
             break
 
+        if not response.content:
+            # HTTP 200 但响应体为空,同样视为失败
+            reason = 'empty_body'
+            logging.error(f"上传响应体为空(第 {attempt}/{max_retries} 次): HTTP 200")
+            if attempt < max_retries:
+                time.sleep(2 * attempt)
+                continue
+            break
+
         try:
             deresponse = json.loads(response.content)
         except ValueError:
+            reason = 'non_json'
             logging.error(
                 f"上传响应非 JSON(第 {attempt}/{max_retries} 次): {response.content[:120]!r}"
             )
@@ -147,6 +161,7 @@ def upload_voice(in_file, parentId=114514,
             break
 
         if deresponse.get('msg') != 'success':
+            reason = 'api_error'
             logging.error(f"上传返回失败(第 {attempt}/{max_retries} 次): {deresponse}")
             if attempt < max_retries:
                 time.sleep(2 * attempt)
@@ -154,9 +169,42 @@ def upload_voice(in_file, parentId=114514,
             break
 
         upload_file_url = deresponse.get("result")
-        logging.info(f"上传成功: {upload_file_url}")
-        return upload_file_url
+        if not upload_file_url:
+            reason = 'no_url'
+            logging.error(f"上传响应缺少 result(第 {attempt}/{max_retries} 次): {deresponse}")
+            if attempt < max_retries:
+                time.sleep(2 * attempt)
+                continue
+            break
 
-    if send_words:
+        logging.info(f"上传成功: {upload_file_url}")
+        return upload_file_url, None
+
+    logging.error(f"上传最终失败: 原因={reason}")
+    return None, reason
+
+
+def upload_voice(in_file, parentId=114514,
+                 time_label=time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime()),
+                 max_retries: int = 3):
+    """上传语音文件,失败自动重试;成功返回 url,失败返回 None 并提示用户。
+
+    服务端体积上限会变化:2026-08 实测 >163.7KB 必然 500,
+    2026-09 复测 3.4MB 原曲已能正常上传。因此调用方宜优先尝试完整原曲,
+    失败再回退压缩上传(见 main.upload_song_with_fallback)。
+    """
+    url, reason = _do_upload(in_file, parentId, time_label, max_retries)
+    if not url and send_words:
         send_words("请重试")
-    return None
+    return url
+
+
+def upload_voice_probe(in_file, parentId=114514,
+                       time_label=time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime()),
+                       max_retries: int = 1):
+    """探测式上传:返回 (url, reason),不向用户发失败提示。
+
+    供"先试完整原曲、失败再回退压缩"的流程使用(见 main.upload_song_with_fallback)。
+    reason 取值见 _do_upload 的说明。
+    """
+    return _do_upload(in_file, parentId, time_label, max_retries)
